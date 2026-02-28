@@ -1,5 +1,10 @@
 import { relations } from "drizzle-orm";
-import { index, pgTableCreator, primaryKey } from "drizzle-orm/pg-core";
+import {
+	index,
+	pgTableCreator,
+	primaryKey,
+	uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { AdapterAccount } from "next-auth/adapters";
 
 /**
@@ -50,6 +55,7 @@ export const users = createTable("user", (d) => ({
 
 export const usersRelations = relations(users, ({ many }) => ({
 	accounts: many(accounts),
+	discoveredServices: many(discoveredServices),
 }));
 
 export const accounts = createTable(
@@ -105,4 +111,104 @@ export const verificationTokens = createTable(
 		expires: d.timestamp({ mode: "date", withTimezone: true }).notNull(),
 	}),
 	(t) => [primaryKey({ columns: [t.identifier, t.token] })],
+);
+
+export const discoveredServices = createTable(
+	"discovered_service",
+	(d) => ({
+		id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+		userId: d
+			.varchar({ length: 255 })
+			.notNull()
+			.references(() => users.id),
+		serviceName: d.varchar({ length: 255 }).notNull(),
+		domain: d.varchar({ length: 255 }).notNull(),
+		discoveredVia: d.varchar({ length: 64 }).notNull().default("gmail_metadata"),
+		firstSeenAt: d
+			.timestamp({ mode: "date", withTimezone: true })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.notNull(),
+		lastSeenAt: d
+			.timestamp({ mode: "date", withTimezone: true })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.notNull(),
+		lastUsedAt: d.timestamp({ mode: "date", withTimezone: true }),
+		isActive: d.boolean().notNull().default(true),
+	}),
+	(t) => [
+		index("discovered_service_user_id_idx").on(t.userId),
+		index("discovered_service_domain_idx").on(t.domain),
+		uniqueIndex("discovered_service_user_domain_uidx").on(t.userId, t.domain),
+	],
+);
+
+export const discoveredServicesRelations = relations(
+	discoveredServices,
+	({ one, many }) => ({
+		user: one(users, {
+			fields: [discoveredServices.userId],
+			references: [users.id],
+		}),
+		riskResults: many(riskResults),
+	}),
+);
+
+export const riskResults = createTable(
+	"risk_result",
+	(d) => ({
+		id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+		serviceId: d
+			.integer()
+			.notNull()
+			.references(() => discoveredServices.id),
+		policyDataSelling: d.integer().notNull(),
+		policyAiTraining: d.integer().notNull(),
+		policyDeleteDifficulty: d.integer().notNull(),
+		policySummary: d.text(),
+		breachDetected: d.boolean().notNull().default(false),
+		breachName: d.varchar({ length: 255 }),
+		breachYear: d.integer(),
+		score: d.integer().notNull(),
+		tier: d.varchar({ length: 16 }).notNull(),
+		reasons: d.text().array().notNull().default([]),
+		scoredAt: d
+			.timestamp({ mode: "date", withTimezone: true })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	}),
+	(t) => [
+		index("risk_result_service_id_idx").on(t.serviceId),
+		index("risk_result_tier_idx").on(t.tier),
+		index("risk_result_score_idx").on(t.score),
+	],
+);
+
+export const riskResultsRelations = relations(riskResults, ({ one }) => ({
+	service: one(discoveredServices, {
+		fields: [riskResults.serviceId],
+		references: [discoveredServices.id],
+	}),
+}));
+
+export const policyCache = createTable(
+	"policy_cache",
+	(d) => ({
+		id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+		serviceName: d.varchar({ length: 255 }).notNull(),
+		domain: d.varchar({ length: 255 }).notNull(),
+		dataSelling: d.integer().notNull(),
+		aiTraining: d.integer().notNull(),
+		deleteDifficulty: d.integer().notNull(),
+		summary: d.text(),
+		source: d.varchar({ length: 64 }).notNull().default("seed"),
+		policyVersion: d.varchar({ length: 128 }),
+		analyzedAt: d
+			.timestamp({ mode: "date", withTimezone: true })
+			.$defaultFn(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	}),
+	(t) => [
+		uniqueIndex("policy_cache_domain_uidx").on(t.domain),
+		index("policy_cache_service_name_idx").on(t.serviceName),
+	],
 );
