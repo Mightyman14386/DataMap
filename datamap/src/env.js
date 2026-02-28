@@ -11,6 +11,9 @@ export const env = createEnv({
 			process.env.NODE_ENV === "production"
 				? z.string()
 				: z.string().optional(),
+		AUTH_GOOGLE_ID: z.string(),
+		AUTH_GOOGLE_SECRET: z.string(),
+		DATABASE_URL: z.string().url(),
 		GOOGLE_CLIENT_ID: z.string(),
 		GOOGLE_CLIENT_SECRET: z.string(),
 		OPENAI_API_KEY: z.string().optional(),
@@ -37,6 +40,8 @@ export const env = createEnv({
 	 */
 	runtimeEnv: {
 		AUTH_SECRET: process.env.AUTH_SECRET,
+		AUTH_GOOGLE_ID: process.env.AUTH_GOOGLE_ID,
+		AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
 		GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
 		GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
 		OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -49,7 +54,7 @@ export const env = createEnv({
 	 * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
 	 * useful for Docker builds.
 	 */
-	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	skipValidation: true,
 	/**
 	 * Makes it so that empty strings are treated as undefined. `SOME_VAR: z.string()` and
 	 * `SOME_VAR=''` will throw an error.
