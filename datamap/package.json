@@ -15,13 +15,17 @@
 		"dev": "next dev --turbo",
 		"preview": "next build && next start",
 		"seed:risk-demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
+		"seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs",
 		"start": "next start",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@auth/drizzle-adapter": "^1.7.2",
 		"@t3-oss/env-nextjs": "^0.12.0",
+		"dotenv": "^17.3.1",
 		"drizzle-orm": "^0.41.0",
+		"firebase": "^12.10.0",
+		"firebase-admin": "^13.7.0",
 		"next": "^15.2.3",
 		"next-auth": "5.0.0-beta.25",
 		"postgres": "^3.4.4",
