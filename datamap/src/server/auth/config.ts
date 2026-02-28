@@ -1,6 +1,8 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import type { DefaultSession, NextAuthConfig } from "next-auth";
+import GoogleProvider from "next-auth/providers/google";
 
+import { env } from "~/env";
 import { db } from "~/server/db";
 import {
 	accounts,
@@ -37,19 +39,19 @@ declare module "next-auth" {
  */
 export const authConfig = {
 	providers: [
-		// src/server/auth.ts
 		GoogleProvider({
 			clientId: env.GOOGLE_CLIENT_ID,
 			clientSecret: env.GOOGLE_CLIENT_SECRET,
 			authorization: {
-			params: {
-				scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
-				prompt: "consent",
-				access_type: "offline",
-				response_type: "code",
-	  		},
+				params: {
+					scope:
+						"openid email profile https://www.googleapis.com/auth/gmail.readonly",
+					prompt: "consent",
+					access_type: "offline",
+					response_type: "code",
+				},
 			},
-  		}),
+		}),
 	],
 	adapter: DrizzleAdapter(db, {
 		usersTable: users,
