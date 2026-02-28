@@ -63,3 +63,19 @@ Invoke-RestMethod -Uri "http://localhost:3000/api/risk/score" -Method Post -Cont
 ```
 
 `persist: false` in the sample payload allows scoring without auth. For persisted records (`persist: true`), the request must be authenticated.
+
+### 4) Test batch scoring (multiple services at once)
+
+```bash
+curl -X POST http://localhost:3000/api/risk/score/batch \
+  -H "Content-Type: application/json" \
+  --data-binary @scripts/risk-score-batch-sample.json
+```
+
+PowerShell alternative:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:3000/api/risk/score/batch" -Method Post -ContentType "application/json" -InFile "scripts/risk-score-batch-sample.json"
+```
+
+Returns all services scored and sorted by `deletePriority`, plus a summary of tier counts (`red`/`yellow`/`green`).
