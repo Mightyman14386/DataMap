@@ -1,12 +1,15 @@
-import type { Config } from "drizzle-kit";
+import { defineConfig } from "drizzle-kit";
+import * as dotenv from "dotenv";
 
-import { env } from "~/env";
+// 1. Manually load the .env file from the root
+dotenv.config({ path: ".env" });
 
-export default {
-	schema: "./src/server/db/schema.ts",
-	dialect: "postgresql",
-	dbCredentials: {
-		url: env.DATABASE_URL,
-	},
-	tablesFilter: ["datamap_*"],
-} satisfies Config;
+export default defineConfig({
+  schema: "./src/server/db/schema.ts",
+  out: "./drizzle",
+  dialect: "postgresql",
+  dbCredentials: {
+    // 2. Use a non-null assertion or check to ensure it exists
+    url: process.env.DATABASE_URL!, 
+  },
+});
