@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --experimental-modules scripts/test-risk-engine.mjs",
+    "test:sample": "node scripts/test-samples.mjs",
+    "seed:demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
+    "seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs"
   },
   "repository": {
     "type": "git",
@@ -19,9 +22,18 @@
   },
   "homepage": "https://github.com/Mightyman14386/DataMap#readme",
   "dependencies": {
+    "@auth/firebase-adapter": "^2.5.0",
+    "@t3-oss/env-nextjs": "^0.11.1",
     "dotenv": "^17.3.1",
     "firebase": "^12.10.0",
-    "process": "^0.11.10"
+    "firebase-admin": "^13.0.0",
+    "next": "^15.2.0",
+    "next-auth": "^5.0.0",
+    "postgres": "^3.4.3",
+    "process": "^0.11.10",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
