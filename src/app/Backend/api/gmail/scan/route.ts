@@ -23,14 +23,10 @@ const EMAILS_FILE = "emails.json";
     if (!userData?.accessToken) {
         return Response.json({ error: "No Google account linked" }, { status: 401 });
     }  
-
-
     const oauth2Client = new google.auth.OAuth2();
      oauth2Client.setCredentials({ access_token: userData.accessToken });
      const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-
-console.log("Creating stream... 4");
     const stream = new ReadableStream({
         async start(controller) {
             console.log("Stream started");
