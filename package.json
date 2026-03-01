@@ -31,16 +31,18 @@
     "lucide-react": "^0.575.0",
     "next": "^15.2.0",
     "next-auth": "^4.24.0",
+    "ogl": "^1.0.11",
     "postgres": "^3.4.3",
     "process": "^0.11.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-force-graph-2d": "^1.29.1",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
     "@types/react": "19.2.14",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   }
 }
