@@ -11,7 +11,10 @@
     "test:llm-batch": "node scripts/test-llm-batch-analysis.mjs",
     "test:llm-batch:real": "node --env-file=.env scripts/test-llm-batch-analysis.mjs",
     "seed:demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
-    "seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs"
+    "seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs",
+    "bench:gmail-parse": "node scripts/benchmark-gmail-parse.mjs",
+    "bench:gmail-pipeline": "node scripts/benchmark-gmail-pipeline.mjs",
+    "bench:llm-analysis": "node scripts/benchmark-llm-analysis-optimization.mjs"
   },
   "repository": {
     "type": "git",
