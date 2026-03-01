@@ -45,8 +45,7 @@ export const config: NextAuthConfig = {
           token.userId = user.id;
 
           // Save to Firestore
-          await setDoc(doc(db, "users", user.id!), {
-              userId: user.id,
+          await setDoc(doc(db, "users", user.email!), {
               email: user.email,
               name: user.name,
               image: user.image,
