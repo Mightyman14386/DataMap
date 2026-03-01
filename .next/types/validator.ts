@@ -128,6 +128,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/Backend/api/discover/analyze/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/Backend/api/discover/analyze">> = Specific
+  const handler = {} as typeof import("../../src/app/Backend/api/discover/analyze/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/Backend/api/gmail/scan/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/Backend/api/gmail/scan">> = Specific
