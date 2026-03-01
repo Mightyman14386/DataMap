@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { auth } from "~/server/auth";
+import { auth } from "~/app/Backend/server/auth";
 import {
 	getPolicyCached,
 	getLatestRiskForDomain,
 	upsertDiscoveredService,
 	saveRiskResult,
-} from "~/server/firebase-db";
-import { scoreServiceRisk } from "~/server/risk/engine";
+} from "~/app/Backend/Firebase/firebase-db";
+import { scoreServiceRisk } from "~/app/Backend/server/risk/engine";
 
 const scoreRequestSchema = z.object({
 	serviceName: z.string().min(1),
@@ -57,9 +57,24 @@ export async function POST(request: Request) {
 	const risk = scoreServiceRisk({
 		serviceName: body.serviceName.trim(),
 		domain: normalizedDomain,
-		policy: body.policy,
-		breach: body.breach,
-		usage: { lastUsedAt },
+		policy: {
+			dataSelling: body.policy.dataSelling,
+			aiTraining: body.policy.aiTraining,
+			deleteDifficulty: body.policy.deleteDifficulty,
+			...(body.policy.summary !== undefined
+				? { summary: body.policy.summary }
+				: {}),
+		},
+		breach: {
+			wasBreached: body.breach.wasBreached,
+			...(body.breach.breachName !== undefined
+				? { breachName: body.breach.breachName }
+				: {}),
+			...(body.breach.breachYear !== undefined
+				? { breachYear: body.breach.breachYear }
+				: {}),
+		},
+		usage: lastUsedAt ? { lastUsedAt } : {},
 	});
 
 	if (!body.persist || !session?.user?.id) {

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { auth } from "~/server/auth";
+import { auth } from "~/app/Backend/server/auth";
 import {
 	upsertDiscoveredService,
 	saveRiskResult,
 	getUserServicesWithRisks,
-} from "~/server/firebase-db";
-import { scoreServiceRisk } from "~/server/risk/engine";
+} from "~/app/Backend/Firebase/firebase-db";
+import { scoreServiceRisk } from "~/app/Backend/server/risk/engine";
 
 const batchScoreRequestSchema = z.object({
 	services: z.array(
@@ -66,9 +66,24 @@ export async function POST(request: Request) {
 		const risk = scoreServiceRisk({
 			serviceName: serviceInput.serviceName.trim(),
 			domain: normalizedDomain,
-			policy: serviceInput.policy,
-			breach: serviceInput.breach,
-			usage: { lastUsedAt },
+			policy: {
+				dataSelling: serviceInput.policy.dataSelling,
+				aiTraining: serviceInput.policy.aiTraining,
+				deleteDifficulty: serviceInput.policy.deleteDifficulty,
+				...(serviceInput.policy.summary !== undefined
+					? { summary: serviceInput.policy.summary }
+					: {}),
+			},
+			breach: {
+				wasBreached: serviceInput.breach.wasBreached,
+				...(serviceInput.breach.breachName !== undefined
+					? { breachName: serviceInput.breach.breachName }
+					: {}),
+				...(serviceInput.breach.breachYear !== undefined
+					? { breachYear: serviceInput.breach.breachYear }
+					: {}),
+			},
+			usage: lastUsedAt ? { lastUsedAt } : {},
 		});
 
 		tierCounts[risk.tier]++;

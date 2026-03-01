@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { env } from "~/env";
-import { getPolicyCached, savePolicyCache } from "~/server/firebase-db";
+import { getPolicyCached, savePolicyCache } from "~/app/Backend/Firebase/firebase-db";
 
 const analyzeRequestSchema = z.object({
 	serviceName: z.string().min(1),
