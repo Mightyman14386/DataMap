@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "next dev",
     "test": "node --experimental-modules scripts/test-risk-engine.mjs",
+    "test:privacy": "node scripts/test-privacy-engine.mjs",
     "test:sample": "node scripts/test-samples.mjs",
+    "test:llm-batch": "node scripts/test-llm-batch-analysis.mjs",
+    "test:llm-batch:real": "node --env-file=.env scripts/test-llm-batch-analysis.mjs",
     "seed:demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
     "seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs"
   },
