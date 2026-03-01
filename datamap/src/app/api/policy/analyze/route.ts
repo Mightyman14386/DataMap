@@ -148,8 +148,13 @@ export async function POST(request: Request) {
 	const normalizedDomain = domain.trim().toLowerCase();
 
 	try {
-		// Check cache first
-		const cached = await getPolicyCached(normalizedDomain);
+		// Check cache first (best effort)
+		let cached: Awaited<ReturnType<typeof getPolicyCached>> = null;
+		try {
+			cached = await getPolicyCached(normalizedDomain);
+		} catch (cacheReadError) {
+			console.warn("Policy cache read failed, continuing without cache:", cacheReadError);
+		}
 
 		if (cached && cached.dataSelling && cached.aiTraining) {
 			return NextResponse.json(
@@ -197,16 +202,20 @@ export async function POST(request: Request) {
 			summary: "Analysis unavailable. Using default risk assessment.",
 		};
 
-		// Cache the result
-		await savePolicyCache(
-			serviceName,
-			normalizedDomain,
-			finalAnalysis.dataSelling,
-			finalAnalysis.aiTraining,
-			finalAnalysis.deleteDifficulty,
-			finalAnalysis.summary,
-			analysis ? "llm" : "default",
-		);
+		// Cache the result (best effort)
+		try {
+			await savePolicyCache(
+				serviceName,
+				normalizedDomain,
+				finalAnalysis.dataSelling,
+				finalAnalysis.aiTraining,
+				finalAnalysis.deleteDifficulty,
+				finalAnalysis.summary,
+				analysis ? "llm" : "default",
+			);
+		} catch (cacheWriteError) {
+			console.warn("Policy cache write failed, returning uncached analysis:", cacheWriteError);
+		}
 
 		return NextResponse.json(
 			{

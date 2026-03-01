@@ -17,6 +17,7 @@
 		"seed:risk-demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
 		"seed:policies": "node --env-file=.env scripts/seed-policy-cache.mjs",
 		"start": "next start",
+		"test:api": "powershell -NoProfile -ExecutionPolicy Bypass -File ./test-firebase-migration.ps1",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
