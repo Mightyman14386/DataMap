@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
-import { db } from "../Backend/Firebase/firebase.js";
+import { db } from "../Firebase/firebase.js";
 import { collection, doc, setDoc } from "firebase/firestore";
 
 declare module "next-auth" {

@@ -1,7 +1,9 @@
-import { auth } from "../../../../../server/auth.js";
+import { auth } from "../../../server/auth.js";
   import { google } from "googleapis";
-import { db} from "../../../../Firebase/firebase.js";
-import { collection, query, where, getDocs, limit, doc, getDoc } from "firebase/firestore";
+import { db} from "../../../Firebase/firebase.js";
+import { collection, query, where, getDocs, limit, doc, getDoc, setDoc } from "firebase/firestore";
+import path from "path/win32";
+import fs from "fs";
 
   export async function GET() {
       const session = await auth();
@@ -26,5 +28,29 @@ import { collection, query, where, getDocs, limit, doc, getDoc } from "firebase/
           maxResults: 10,
       });
 
-      return Response.json(messages.data);
+      const fullMessages = await Promise.all(                                                                     
+      (messages.data.messages ?? []).map((msg) =>                                                          
+         gmail.users.messages.get({ userId: "me", id: msg.id! })                                             
+       )                                                                                                       
+    );
+
+    const saved = [];                                                                                           
+          for (const res of fullMessages) {                                                                           
+              const headers = res.data.payload?.headers ?? [];                                                        
+              const emailData = {                                                                                     
+                 id: res.data.id,                                                                                    
+                  subject: headers.find(h => h.name === "Subject")?.value ?? null,                                    
+                  from: headers.find(h => h.name === "From")?.value ?? null,                                          
+                  date: headers.find(h => h.name === "Date")?.value ?? null,                                          
+                  snippet: res.data.snippet ?? null,                                                                  
+                  savedAt: new Date(),                                                                                
+              };                                                                                                      
+              fs.writeFileSync(
+              path.join(process.cwd(), "emails.json"),
+              JSON.stringify(saved, null, 2)
+  );                                                                                                   
+              saved.push(emailData);                                                                                  
+          }                                                                                                           
+    return Response.json({ saved: saved.length, messages: saved });
+
   }
