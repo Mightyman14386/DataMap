@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import postgres from "postgres";
 
 const DATABASE_URL = process.env.DATABASE_URL;

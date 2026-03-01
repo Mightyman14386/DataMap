@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "next dev",
     "test": "node --experimental-modules scripts/test-risk-engine.mjs",
     "test:sample": "node scripts/test-samples.mjs",
     "seed:demo": "node --env-file=.env scripts/seed-risk-demo.mjs",
@@ -27,9 +28,10 @@
     "dotenv": "^17.3.1",
     "firebase": "^12.10.0",
     "firebase-admin": "^13.0.0",
+    "lucide-react": "^0.575.0",
     "googleapis": "^171.4.0",
     "next": "^15.2.0",
-    "next-auth": "^5.0.0-beta.30",
+    "next-auth": "5.0.0-beta.30",
     "postgres": "^3.4.3",
     "process": "^0.11.10",
     "react": "^19.0.0",
@@ -38,6 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
+    "@types/react": "19.2.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
