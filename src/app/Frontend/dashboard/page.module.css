@@ -1,0 +1,336 @@
+.dashboardGrid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+.widget {
+    background: rgba(17, 24, 39, 0.75);
+    backdrop-filter: blur(8px);
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.widgetHalf {
+    grid-column: span 4;
+}
+
+.widgetFull {
+    grid-column: span 12;
+}
+
+.widgetTitle {
+    font-size: 0.85rem;
+    color: #94A3B8;
+    /* Steel Gray */
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-family: "Fira Code", monospace;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.widgetValue {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #E2E8F0;
+    /* Ice White */
+    font-family: "Space Grotesk", sans-serif;
+    line-height: 1;
+}
+
+.valueRed {
+    color: #FF003C;
+}
+
+.valueYellow {
+    color: #FFB000;
+}
+
+.valueGreen {
+    color: #00FF41;
+}
+
+.widgetSubtext {
+    font-size: 0.8rem;
+    color: #94A3B8;
+    margin-top: 0.5rem;
+}
+
+.graphContainer {
+    height: 450px;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    overflow: hidden;
+    position: relative;
+}
+
+/* Account Inventory List */
+.inventoryHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #1E293B;
+}
+
+.inventoryFilter {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filterBtn {
+    background: rgba(17, 24, 39, 0.5);
+    border: 1px solid #1E293B;
+    color: #94A3B8;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.filterBtn:hover {
+    border-color: #00F0FF;
+    color: #00F0FF;
+}
+
+.filterBtn[data-active="true"] {
+    background: rgba(0, 240, 255, 0.1);
+    border-color: #00F0FF;
+    color: #00F0FF;
+}
+
+.inventoryList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.inventoryItem {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr auto;
+    align-items: center;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.inventoryItem:hover {
+    background: rgba(0, 240, 255, 0.05);
+    border-color: rgba(0, 240, 255, 0.3);
+}
+
+.serviceName {
+    font-weight: 500;
+    color: #E2E8F0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.serviceCategory {
+    font-size: 0.8rem;
+    color: #94A3B8;
+}
+
+.statusTag {
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid transparent;
+}
+
+.statusRed {
+    background: rgba(255, 0, 60, 0.1);
+    color: #FF003C;
+    border-color: rgba(255, 0, 60, 0.3);
+}
+
+.statusYellow {
+    background: rgba(255, 176, 0, 0.1);
+    color: #FFB000;
+    border-color: rgba(255, 176, 0, 0.3);
+}
+
+.statusGreen {
+    background: rgba(0, 255, 65, 0.1);
+    color: #00FF41;
+    border-color: rgba(0, 255, 65, 0.3);
+}
+
+.actionIcon {
+    color: #94A3B8;
+    transition: color 0.2s ease;
+}
+
+.inventoryItem:hover .actionIcon {
+    color: #00F0FF;
+}
+
+/* Modal Styling */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modalContent {
+    background: rgba(17, 24, 39, 0.95);
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 240, 255, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+/* HUD Modal Corners */
+.modalContent::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    border-top: 2px solid #00F0FF;
+    border-left: 2px solid #00F0FF;
+}
+
+.modalContent::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    border-bottom: 2px solid #00F0FF;
+    border-right: 2px solid #00F0FF;
+}
+
+.modalHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #1E293B;
+}
+
+.modalTitle {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #E2E8F0;
+    margin: 0;
+}
+
+.closeBtn {
+    background: transparent;
+    border: none;
+    color: #94A3B8;
+    cursor: pointer;
+    padding: 0.25rem;
+}
+
+.closeBtn:hover {
+    color: #FF003C;
+}
+
+.modalBody {
+    padding: 1.5rem;
+}
+
+.summaryBox {
+    background: rgba(0, 240, 255, 0.05);
+    border-left: 3px solid #00F0FF;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.summaryText {
+    color: #E2E8F0;
+    line-height: 1.6;
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.dataPointsGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.dataPoint {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid #1E293B;
+    border-radius: 4px;
+}
+
+.dataPointLabel {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #94A3B8;
+    margin-bottom: 0.5rem;
+    font-family: "Fira Code", monospace;
+}
+
+.dataPointValue {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #E2E8F0;
+}
+
+.killSwitchBtn {
+    width: 100%;
+    background: rgba(255, 0, 60, 0.1);
+    border: 1px solid #FF003C;
+    color: #FF003C;
+    padding: 1rem;
+    border-radius: 4px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.killSwitchBtn:hover {
+    background: #FF003C;
+    color: #0A0E17;
+    box-shadow: 0 0 15px rgba(255, 0, 60, 0.4);
+}
