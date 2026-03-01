@@ -1,1 +1,9 @@
-{}
+{
+  "/Backend/api/auth/[...nextauth]/route": "app/Backend/api/auth/[...nextauth]/route.js",
+  "/Backend/api/dashboard/get-analysis/route": "app/Backend/api/dashboard/get-analysis/route.js",
+  "/page": "app/page.js",
+  "/Frontend/page": "app/Frontend/page.js",
+  "/Frontend/authorize/page": "app/Frontend/authorize/page.js",
+  "/Frontend/scan/page": "app/Frontend/scan/page.js",
+  "/Frontend/dashboard/page": "app/Frontend/dashboard/page.js"
+}

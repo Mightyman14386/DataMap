@@ -85,9 +85,11 @@ export function scoreServiceRisk(input: ServiceInput): RiskScore {
 
 	// Determine risk tier
 	let tier: "green" | "yellow" | "red" | "neutral" = "green";
-	
-	// If we couldn't analyze the policy, mark as neutral
-	if (input.isDataUnavailable) {
+
+	if (input.breach.wasBreached) {
+		// Any confirmed breach automatically makes it red
+		tier = "red";
+	} else if (input.isDataUnavailable) {
 		tier = "neutral";
 		reasons.push("Insufficient data to assess risk level");
 	} else if (score >= 70) {

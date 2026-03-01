@@ -99,7 +99,7 @@ export async function GET() {
 					serviceName: service.serviceName,
 					domain: service.domain,
 				},
-				risk: risk || { score: 5, tier: "yellow" },
+				risk: risk ? { ...risk, tier: risk.breachDetected ? "red" : risk.tier } : { score: 5, tier: "yellow" },
 				policyAnalysis: {
 					dataSelling: risk?.policyDataSelling || 5,
 					aiTraining: risk?.policyAiTraining || 5,

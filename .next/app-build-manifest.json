@@ -1,3 +1,60 @@
 {
-  "pages": {}
+  "pages": {
+    "/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
+    ],
+    "/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
+    ],
+    "/Frontend/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/page.css",
+      "static/chunks/app/Frontend/page.js"
+    ],
+    "/Backend/api/auth/[...nextauth]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/Backend/api/auth/[...nextauth]/route.js"
+    ],
+    "/Frontend/authorize/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/authorize/page.css",
+      "static/chunks/app/Frontend/authorize/page.js"
+    ],
+    "/Frontend/scan/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/scan/page.css",
+      "static/chunks/app/Frontend/scan/page.js"
+    ],
+    "/Backend/api/gmail/analyze/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/Backend/api/gmail/analyze/route.js"
+    ],
+    "/Frontend/dashboard/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/layout.css",
+      "static/chunks/app/Frontend/dashboard/layout.js"
+    ],
+    "/Frontend/dashboard/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/page.css",
+      "static/chunks/app/Frontend/dashboard/page.js"
+    ],
+    "/Backend/api/dashboard/get-analysis/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/Backend/api/dashboard/get-analysis/route.js"
+    ]
+  }
 }

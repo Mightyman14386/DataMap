@@ -7,7 +7,10 @@ import {
 	upsertDiscoveredService,
 	saveRiskResult,
 	saveDeletionInfo,
+	savePolicyCache,
 } from "~/app/Backend/Firebase/firebase-db";
+import { db } from "~/app/Backend/Firebase/firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { scoreServiceRisk } from "~/app/Backend/server/risk/engine";
 import {
 	analyzePrivacyPolicy,
@@ -89,10 +92,32 @@ export async function analyzeDiscoveredServices(
 		const batchNum = Math.floor(batchStart / batchSize) + 1;
 		console.log(`[Discover Analyzer] Batch ${batchNum}: processing ${batch.length} services`);
 
-		// Phase 1: Which services in this batch need policy fetching
-		const policiesToFetch = batch
-			.filter(s => !COMMON_COMPANY_CACHE[s.domain.trim().toLowerCase()])
-			.map(s => ({ serviceName: s.serviceName, domain: s.domain.trim().toLowerCase() }));
+		// Phase 1: Check Firestore cache for all services in parallel
+		const policiesToFetch: Array<{ serviceName: string; domain: string }> = [];
+		const cachedAnalysisMap: Record<string, any> = {};
+
+		await Promise.all(batch.map(async s => {
+			const domain = s.domain.trim().toLowerCase();
+			if (COMMON_COMPANY_CACHE[domain]) return;
+
+			const cacheSnap = await getDocs(query(
+				collection(db, "datamap_policy_cache"),
+				where("domain", "==", domain)
+			));
+
+			if (cacheSnap.docs.length > 0) {
+				const cached = cacheSnap.docs[0].data();
+				cachedAnalysisMap[domain] = {
+					dataSelling: cached.dataSelling,
+					aiTraining: cached.aiTraining,
+					deleteDifficulty: cached.deleteDifficulty,
+					summary: cached.summary,
+				};
+				console.log(`[Discover Analyzer] Using cached analysis for ${domain}`);
+			} else {
+				policiesToFetch.push({ serviceName: s.serviceName, domain });
+			}
+		}));
 
 		// Phase 2: Fetch policies for this batch in parallel
 		const policyTextMap: Record<string, string> = {};
@@ -116,10 +141,28 @@ export async function analyzeDiscoveredServices(
 				policyText: policyTextMap[p.domain]!,
 			}));
 
-		let batchAnalysisResults: Record<string, any> = {};
+		// Seed with Firestore-cached results, then add any new LLM results on top
+		const batchAnalysisResults: Record<string, any> = { ...cachedAnalysisMap };
 		if (policiesToAnalyze.length > 0) {
 			try {
-				batchAnalysisResults = await batchAnalyzePrivacyPolicies(policiesToAnalyze);
+				const llmResults = await batchAnalyzePrivacyPolicies(policiesToAnalyze);
+				Object.assign(batchAnalysisResults, llmResults);
+
+				// Save new LLM results to cache so re-scans skip the LLM
+				await Promise.all(
+					Object.entries(llmResults).map(([domain, result]: [string, any]) => {
+						const service = policiesToAnalyze.find(p => p.domain === domain);
+						return savePolicyCache(
+							service?.serviceName ?? domain,
+							domain,
+							result.dataSelling,
+							result.aiTraining,
+							result.deleteDifficulty,
+							result.summary,
+							"llm"
+						).catch(err => console.warn(`[Discover Analyzer] Cache save failed for ${domain}:`, err));
+					})
+				);
 			} catch (err) {
 				console.warn(`[Discover Analyzer] Batch ${batchNum} LLM failed, using defaults:`, err);
 			}

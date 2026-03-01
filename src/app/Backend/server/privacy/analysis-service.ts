@@ -545,7 +545,7 @@ ${policyText}`;
 		const analysisResult = await retryWithBackoff(
 			async () => {
 				const response = await fetch(
-					`https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent?key=${geminiKey}`,
+					`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
 					{
 						method: "POST",
 						headers: {
@@ -899,7 +899,7 @@ Policies to analyze:
 ${policiesText}`;
 
 		const response = await fetch(
-			`https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent?key=${apiKey}`,
+			`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
 			{
 				method: "POST",
 				headers: {
@@ -927,7 +927,7 @@ ${policiesText}`;
 			console.error(`Gemini batch API error (${response.status})`);
 			const errorText = await response.text();
 			console.error("Error response:", errorText);
-			console.error(`API URL used: https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent`);
+			console.error(`API URL used: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`);
 			return null;
 		}
 
