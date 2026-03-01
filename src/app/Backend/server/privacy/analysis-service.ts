@@ -466,7 +466,7 @@ export async function fetchPrivacyPolicyText(
 				if (resp.ok) {
 					const text = await resp.text();
 					if (text && text.length > 500) {
-						return text.slice(0, 15000); // Increased limit for better analysis
+						return text.slice(0, 7000); // Increased limit for better analysis
 					}
 				}
 			} catch {

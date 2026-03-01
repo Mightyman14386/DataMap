@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import styles from "./page.module.css";
 import {
     Activity, ShieldAlert, Users,
@@ -28,88 +28,109 @@ export default function DashboardPage() {
     const [error, setError] = useState<string | null>(null);
 
     // Fetch real data from Firebase (cached results, not re-running scan)
+    const fetchData = useCallback(async () => {
+      try {
+          setLoading(true);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+          const response = await fetch("/Backend/api/dashboard/get-analysis", {
+              method: "GET",
+              credentials: "include",
+              signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) throw new Error("Failed to fetch analysis data");
+
+          const data = await response.json();
+
+          if (data.isEmpty || !data.results || data.results.length === 0) {
+              setServices([]);
+              setLoading(false);
+              return;
+          }
+
+          const transformedServices = data.results?.map((result: any) => {
+              const tier = result.risk?.tier?.toLowerCase() || "yellow";
+              const riskMap: Record<string, string> = {
+                  "red": "RED", "yellow": "YELLOW", "green": "GREEN", "neutral": "NEUTRAL"
+              };
+              const risk = riskMap[tier] || "NEUTRAL";
+              return {
+                  id: result.service.domain?.replace(".", "-") || "unknown",
+                  name: result.service.serviceName || "Unknown",
+                  risk,
+                  category: "Discovered",
+                  dataSelling: result.policyAnalysis?.dataSelling >= 6 ? "High" : "Low",
+                  aiTraining: result.policyAnalysis?.aiTraining >= 6 ? "Yes" : "No",
+                  summary: result.policyAnalysis?.summary || "Analysis pending...",
+                  lastBreach: result.breachInfo?.breachName || "N/A",
+                  usage: "Active",
+                  deletionInfo: result.deletionInfo ? { ...result.deletionInfo } : null,
+              };
+          }) || [];
+
+          setServices(transformedServices);
+          setError(null);
+      } catch (err: any) {
+          if (err.name === 'AbortError') {
+              setError("Dashboard load took too long. Try refreshing the page.");
+          } else {
+              setError("Unable to load analysis results.");
+          }
+          setServices([]);
+      } finally {
+          setLoading(false);
+      }
+  }, []);
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                
-                // Set a 20 second timeout for the fetch
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 20000);
-                
-                const response = await fetch("/Backend/api/dashboard/get-analysis", {
-                    method: "GET",
-                    credentials: "include",
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    throw new Error("Failed to fetch analysis data");
-                }
-                
-                const data = await response.json();
-                
-                // If no results, show empty state
-                if (data.isEmpty || !data.results || data.results.length === 0) {
-                    setServices([]);
-                    setError("No analysis results found. Complete a scan first.");
-                    setLoading(false);
-                    return;
-                }
-                
-                // Transform API response to UI format
-                const transformedServices = data.results?.map((result: any) => {
-                    // Use the tier field from backend (already calculated correctly)
-                    // Backend returns: green, yellow, red, neutral
-                    const tier = result.risk?.tier?.toLowerCase() || "yellow";
-                    const riskMap: Record<string, string> = {
-                        "red": "RED",
-                        "yellow": "YELLOW",
-                        "green": "GREEN",
-                        "neutral": "NEUTRAL"
-                    };
-                    const risk = riskMap[tier] || "NEUTRAL";
-                    
-                    return {
-                        id: result.service.domain?.replace(".", "-") || "unknown",
-                        name: result.service.serviceName || "Unknown",
-                        risk,
-                        category: "Discovered",
-                        dataSelling: result.policyAnalysis?.dataSelling >= 6 ? "High" : "Low",
-                        aiTraining: result.policyAnalysis?.aiTraining >= 6 ? "Yes" : "No",
-                        summary: result.policyAnalysis?.summary || "Analysis pending...",
-                        lastBreach: result.breachInfo?.breachName || "N/A",
-                        usage: "Active",
-                        deletionInfo: result.deletionInfo ? {
-                            availability: result.deletionInfo.availability || "unknown",
-                            accountDeletionUrl: result.deletionInfo.accountDeletionUrl,
-                            dataDeletionUrl: result.deletionInfo.dataDeletionUrl,
-                            retentionWindow: result.deletionInfo.retentionWindow,
-                            instructions: result.deletionInfo.instructions,
-                            source: result.deletionInfo.source || "default",
-                        } : null,
-                    };
-                }) || [];
-                
-                setServices(transformedServices);
-                setError(null);
-            } catch (err: any) {
-                console.error("Failed to load dashboard data:", err);
-                if (err.name === 'AbortError') {
-                    setError("Dashboard load took too long. Try refreshing the page.");
-                } else {
-                    setError("Unable to load analysis results.");
-                }
-                setServices([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-        
-        fetchData();
+        void fetchData();
     }, []);
+
+
+    const [isScanning, setIsScanning] = useState(true);
+    const serviceCountRef = useRef(0);
+
+    // Keep ref in sync with latest services count without affecting polling effect
+    useEffect(() => {
+        serviceCountRef.current = services.length;
+    }, [services.length]);
+
+    useEffect(() => {
+        let prevCount = 0;
+        let staleTicks = 0;
+        const MAX_POLL_MINUTES = 10;
+        const startTime = Date.now();
+
+        const interval = setInterval(async () => {
+            if (Date.now() - startTime > MAX_POLL_MINUTES * 60 * 1000) {
+                setIsScanning(false);
+                clearInterval(interval);
+                return;
+            }
+
+            await fetchData();
+
+            // Read latest count from ref (not stale closure)
+            const currentCount = serviceCountRef.current;
+            if (currentCount === prevCount) {
+                staleTicks++;
+                // 8 ticks × 5s = 40s with no change → scan done
+                if (staleTicks >= 8) {
+                    setIsScanning(false);
+                    clearInterval(interval);
+                }
+            } else {
+                prevCount = currentCount;
+                staleTicks = 0;
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [fetchData]);
+
 
     const filteredServices = services.filter(
         (s) => activeFilter === "ALL" || s.risk === activeFilter

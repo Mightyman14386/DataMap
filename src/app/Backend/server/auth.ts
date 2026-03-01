@@ -39,13 +39,10 @@ export const config: NextAuthConfig = {
   ],
   callbacks: {
     async jwt({ token, account, user }) {
-      console.log("[NextAuth JWT] Input - user:", !!user, "account:", !!account);
       
       if (account && user) {
         // Ensure we have a proper user ID
         const userId = user.id || user.email;
-        
-        console.log("[NextAuth JWT] Setting tokens - userId:", userId);
         
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
@@ -61,24 +58,20 @@ export const config: NextAuthConfig = {
               refreshToken: account.refresh_token,
               updatedAt: new Date(),
           }, { merge: true });
-          console.log("[NextAuth JWT] Saved to Firestore");
-        }
+        
       } else {
-        console.log("[NextAuth JWT] Returning existing token");
+        //console.log("[NextAuth JWT] Returning existing token");
       }
       
-      console.log("[NextAuth JWT] Token:", { ...token, accessToken: token.accessToken ? "***" : undefined });
       return token;
     },
     async session({ session, token }) {
-      console.log("[NextAuth Session] Input - session.user:", session.user, "token:", { ...token, accessToken: token.accessToken ? "***" : undefined });
       
       if (session.user) {
         session.user.id = (token.userId as string) || session.user.email || "unknown";
         session.accessToken = token.accessToken as string | undefined;
       }
       
-      console.log("[NextAuth Session] Output - user.id:", session.user?.id, "hasAccessToken:", !!session.accessToken);
       return session;
     },
   },

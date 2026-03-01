@@ -48,249 +48,224 @@ export interface AnalysisOutput {
 	results: AnalyzedResult[];
 }
 
+const COMMON_COMPANY_CACHE: Record<string, boolean> = {
+	"google.com": true,
+	"facebook.com": true,
+	"instagram.com": true,
+	"tiktok.com": true,
+	"linkedin.com": true,
+	"amazon.com": true,
+	"twitter.com": true,
+	"x.com": true,
+	"spotify.com": true,
+	"dropbox.com": true,
+	"apple.com": true,
+	"microsoft.com": true,
+	"github.com": true,
+	"openai.com": true,
+	"reddit.com": true,
+	"discord.com": true,
+	"gmail.com": true,
+	"outlook.com": true,
+	"youtube.com": true,
+};
+
 export async function analyzeDiscoveredServices(
 	services: DiscoveredServiceInput[],
 	options: {
 		persist?: boolean;
 		userId?: string;
+		batchSize?: number;
 	} = {}
 ): Promise<AnalysisOutput> {
-	const { persist = false, userId } = options;
+	const { persist = false, userId, batchSize = 10 } = options;
 	const results: AnalyzedResult[] = [];
 	const tierCounts = { red: 0, yellow: 0, green: 0, neutral: 0 };
 
-	// Phase 1: Collect services that need policy fetching (not in built-in cache)
-	const COMMON_COMPANY_CACHE: Record<string, boolean> = {
-		"google.com": true,
-		"facebook.com": true,
-		"instagram.com": true,
-		"tiktok.com": true,
-		"linkedin.com": true,
-		"amazon.com": true,
-		"twitter.com": true,
-		"x.com": true,
-		"spotify.com": true,
-		"dropbox.com": true,
-		"apple.com": true,
-		"microsoft.com": true,
-		"github.com": true,
-		"openai.com": true,
-		"reddit.com": true,
-		"discord.com": true,
-		"gmail.com": true,
-		"outlook.com": true,
-		"youtube.com": true,
-	};
+	// Process services in batches — each batch fully completes (policy + LLM + breach + write)
+	// before moving to the next, so Firestore gets data every batchSize services
+	for (let batchStart = 0; batchStart < services.length; batchStart += batchSize) {
+		const batch = services.slice(batchStart, batchStart + batchSize);
+		const batchNum = Math.floor(batchStart / batchSize) + 1;
+		console.log(`[Discover Analyzer] Batch ${batchNum}: processing ${batch.length} services`);
 
-	const policiesToFetch: Array<{ index: number; serviceName: string; domain: string }> = [];
+		// Phase 1: Which services in this batch need policy fetching
+		const policiesToFetch = batch
+			.filter(s => !COMMON_COMPANY_CACHE[s.domain.trim().toLowerCase()])
+			.map(s => ({ serviceName: s.serviceName, domain: s.domain.trim().toLowerCase() }));
 
-	for (let i = 0; i < services.length; i++) {
-		const service = services[i];
-		if (!service) continue;
-		const normalizedDomain = service.domain.trim().toLowerCase();
-		if (!COMMON_COMPANY_CACHE[normalizedDomain]) {
-			policiesToFetch.push({
-				index: i,
-				serviceName: service.serviceName,
-				domain: normalizedDomain,
-			});
+		// Phase 2: Fetch policies for this batch in parallel
+		const policyTextMap: Record<string, string> = {};
+		await Promise.all(
+			policiesToFetch.map(async p => {
+				try {
+					const text = await fetchPrivacyPolicyText(p.domain);
+					if (text) policyTextMap[p.domain] = text;
+				} catch (err) {
+					console.warn(`[Discover Analyzer] Policy fetch failed for ${p.domain}:`, err);
+				}
+			})
+		);
+
+		// Phase 3: Batch LLM analyze for this batch
+		const policiesToAnalyze = policiesToFetch
+			.filter(p => policyTextMap[p.domain])
+			.map(p => ({
+				serviceName: p.serviceName,
+				domain: p.domain,
+				policyText: policyTextMap[p.domain]!,
+			}));
+
+		let batchAnalysisResults: Record<string, any> = {};
+		if (policiesToAnalyze.length > 0) {
+			try {
+				batchAnalysisResults = await batchAnalyzePrivacyPolicies(policiesToAnalyze);
+			} catch (err) {
+				console.warn(`[Discover Analyzer] Batch ${batchNum} LLM failed, using defaults:`, err);
+			}
 		}
-	}
 
-	// Phase 2: Batch fetch all policies at once (more efficient than one at a time)
-	const policyTextMap: Record<string, string> = {};
-	for (const policyRequest of policiesToFetch) {
-		const text = await fetchPrivacyPolicyText(policyRequest.domain);
-		if (text) {
-			policyTextMap[policyRequest.domain] = text;
-		}
-	}
+		// Phase 4: Breach check for this batch in parallel
+		const breachCheckMap: Record<string, any> = {};
+		await Promise.all(
+			batch.map(async s => {
+				try {
+					const breach = await checkDataBreach(s.domain.toLowerCase().trim());
+					breachCheckMap[s.domain.toLowerCase().trim()] = breach;
+				} catch (err) {
+					console.warn(`[Discover Analyzer] Breach check failed for ${s.domain}:`, err);
+				}
+			})
+		);
 
-	// Phase 3: Batch analyze all non-cached policies in chunks (Gemini friendly)
-	const policiesToAnalyze = policiesToFetch
-		.filter((p) => policyTextMap[p.domain])
-		.map((p) => ({
-			serviceName: p.serviceName,
-			domain: p.domain,
-			policyText: policyTextMap[p.domain] || "",
-		}))
-		.filter((p) => p.policyText.length > 0);
+		// Phase 5: Score and persist each service in this batch
+		for (const serviceInput of batch) {
+			const normalizedDomain = serviceInput.domain.trim().toLowerCase();
+			const lastUsedAt = serviceInput.lastUsedAt
+				? new Date(serviceInput.lastUsedAt)
+				: undefined;
 
-	const batchAnalysisResults = policiesToAnalyze.length > 0
-		? await batchAnalyzePrivacyPolicies(policiesToAnalyze)
-		: {};
+			try {
+				let analysis = batchAnalysisResults[normalizedDomain];
+				let isDataUnavailable = false;
 
-	// Phase 4: Batch check breaches for all services (parallel)
-	const breachCheckMap = await Promise.all(
-		services.map((service) =>
-			checkDataBreach(service.domain.toLowerCase().trim()).then((breach) => ({
-				domain: service.domain.toLowerCase().trim(),
-				breach,
-			})),
-		),
-	).then((results) =>
-		results.reduce(
-			(map, { domain, breach }) => {
-				map[domain] = breach;
-				return map;
-			},
-			{} as Record<string, any>,
-		),
-	);
+				if (!analysis) {
+					if (policyTextMap[normalizedDomain]) {
+						const result = await analyzePrivacyPolicy(
+							serviceInput.serviceName,
+							policyTextMap[normalizedDomain]!,
+							normalizedDomain,
+						);
+						if (result) analysis = result;
+					} else {
+						isDataUnavailable = true;
+						console.log(`[Discover Analyzer] No policy for ${serviceInput.serviceName} (${normalizedDomain})`);
+					}
+				}
 
-	// Phase 5: Process each discovered service with all analyzed data
-	for (const serviceInput of services) {
-		const normalizedDomain = serviceInput.domain.trim().toLowerCase();
-		const lastUsedAt = serviceInput.lastUsedAt
-			? new Date(serviceInput.lastUsedAt)
-			: undefined;
+				const policyScores = analysis || {
+					dataSelling: 5,
+					aiTraining: 5,
+					deleteDifficulty: 5,
+					summary: "Privacy policy analysis unavailable.",
+				};
 
-		try {
-			// Get analysis from batch results or cache
-			let analysis = batchAnalysisResults[normalizedDomain];
-			let isDataUnavailable = false;
-			
-			if (!analysis) {
-				// Only call LLM if we have actual policy text to analyze
-				if (policyTextMap[normalizedDomain]) {
-				const result = await analyzePrivacyPolicy(
-					serviceInput.serviceName,
-					policyTextMap[normalizedDomain],
+				const deletionInfo = getDeletionInfoForService(
 					normalizedDomain,
+					policyTextMap[normalizedDomain] || null,
+					analysis || null,
 				);
-				if (result) {
-					analysis = result;
-				}
+
+				const breachInfo = breachCheckMap[normalizedDomain] || {
+					wasBreached: false,
+					breachCheckStatus: "unavailable" as const,
+				};
+
+				if (breachInfo.wasBreached) {
+					console.log(`[Discover Analyzer] ⚠ BREACH: ${normalizedDomain}: ${breachInfo.breachName} (${breachInfo.breachYear})`);
 				} else {
-					// Policy couldn't be fetched - log this clearly
-					isDataUnavailable = true;
-					console.log(`[Discover Analyzer] No policy available for ${serviceInput.serviceName} (${normalizedDomain}) - marking as neutral`);
+					console.log(`[Discover Analyzer] ✓ No breach: ${normalizedDomain}`);
 				}
-			}
 
-			const policyScores = analysis || {
-				dataSelling: 5,
-				aiTraining: 5,
-				deleteDifficulty: 5,
-				summary: "Privacy policy analysis unavailable.",
-			};
+				const risk = scoreServiceRisk({
+					serviceName: serviceInput.serviceName.trim(),
+					domain: normalizedDomain,
+					policy: policyScores,
+					breach: breachInfo,
+					usage: lastUsedAt ? { lastUsedAt } : {},
+					isDataUnavailable,
+				});
 
-			const deletionInfo = getDeletionInfoForService(
-				normalizedDomain,
-				policyTextMap[normalizedDomain] || null,
-				analysis || null,
-			);
+				tierCounts[risk.tier]++;
 
-			// Get cached breach info
-			const breachInfo = breachCheckMap[normalizedDomain] || {
-				wasBreached: false,
-				breachCheckStatus: "unavailable" as const,
-			};
+				if (!persist || !userId) {
+					results.push({
+						service: { serviceName: serviceInput.serviceName, domain: normalizedDomain },
+						risk,
+						policyAnalysis: policyScores,
+						deletionInfo,
+						breachInfo,
+					});
+					continue;
+				}
 
-			// Log breach status for debugging
-			if (breachInfo.wasBreached) {
-				console.log(`[Discover Analyzer] ⚠ BREACH DETECTED for ${normalizedDomain}: ${breachInfo.breachName} (${breachInfo.breachYear})`);
-			} else {
-				console.log(`[Discover Analyzer] ✓ No breach found for ${normalizedDomain} (status: ${breachInfo.breachCheckStatus})`);
-			}
+				// Write this service to Firestore immediately
+				const serviceId = await upsertDiscoveredService(
+					userId,
+					risk.serviceName,
+					risk.domain,
+					lastUsedAt,
+				);
 
-			// Score the risk
-			const risk = scoreServiceRisk({
-				serviceName: serviceInput.serviceName.trim(),
-				domain: normalizedDomain,
-				policy: policyScores,
-				breach: breachInfo,
-				usage: lastUsedAt ? { lastUsedAt } : {},
-				isDataUnavailable, // Pass flag indicating if data couldn't be retrieved
-			});
+				const riskId = await saveRiskResult(
+					serviceId,
+					policyScores.dataSelling,
+					policyScores.aiTraining,
+					policyScores.deleteDifficulty,
+					policyScores.summary,
+					breachInfo.wasBreached,
+					breachInfo.breachName,
+					breachInfo.breachYear,
+					risk.score,
+					risk.tier,
+					risk.reasons,
+				);
 
-			tierCounts[risk.tier]++;
+				await saveDeletionInfo(
+					riskId,
+					deletionInfo.availability,
+					deletionInfo.accountDeletionUrl,
+					deletionInfo.dataDeletionUrl,
+					deletionInfo.retentionWindow,
+					deletionInfo.instructions,
+					deletionInfo.source,
+				);
 
-			if (!persist || !userId) {
+				console.log(`[Discover Analyzer] Saved ${normalizedDomain} (batch ${batchNum})`);
+
 				results.push({
 					service: {
+						id: serviceId,
 						serviceName: serviceInput.serviceName,
 						domain: normalizedDomain,
 					},
-					risk,
+					risk: { ...risk, id: riskId, scoredAt: new Date() },
 					policyAnalysis: policyScores,
 					deletionInfo,
 					breachInfo,
 				});
-				continue;
+			} catch (error) {
+				results.push({
+					service: { serviceName: serviceInput.serviceName, domain: normalizedDomain },
+					error: error instanceof Error ? error.message : "Unknown error",
+				});
 			}
-
-			// Persist to database
-			const serviceId = await upsertDiscoveredService(
-				userId,
-				risk.serviceName,
-				risk.domain,
-				lastUsedAt,
-			);
-
-			const riskId = await saveRiskResult(
-				serviceId,
-				policyScores.dataSelling,
-				policyScores.aiTraining,
-				policyScores.deleteDifficulty,
-				policyScores.summary,
-				breachInfo.wasBreached,
-				breachInfo.breachName,
-				breachInfo.breachYear,
-				risk.score,
-				risk.tier,
-				risk.reasons,
-			);
-
-			console.log(`[Discover Analyzer] Saved risk result ${riskId} for ${normalizedDomain}. Breach: ${breachInfo.wasBreached ? breachInfo.breachName : "None"}`);
-
-			// Save deletion info
-			await saveDeletionInfo(
-				riskId,
-				deletionInfo.availability,
-				deletionInfo.accountDeletionUrl,
-				deletionInfo.dataDeletionUrl,
-				deletionInfo.retentionWindow,
-				deletionInfo.instructions,
-				deletionInfo.source,
-			);
-
-			results.push({
-				service: {
-					id: serviceId,
-					serviceName: serviceInput.serviceName,
-					domain: normalizedDomain,
-				},
-				risk: {
-					...risk,
-					id: riskId,
-					scoredAt: new Date(),
-				},
-				policyAnalysis: policyScores,
-				deletionInfo,
-				breachInfo,
-			});
-		} catch (error) {
-			results.push({
-				service: {
-					serviceName: serviceInput.serviceName,
-					domain: normalizedDomain,
-				},
-				error: error instanceof Error ? error.message : "Unknown error",
-			});
 		}
+
+		console.log(`[Discover Analyzer] Batch ${batchNum} complete — ${results.length}/${services.length} services written to Firestore`);
 	}
 
-	// Sort by delete priority descending
-	results.sort((a, b) => {
-		const aPriority = a.risk?.deletePriority ?? 0;
-		const bPriority = b.risk?.deletePriority ?? 0;
-		return bPriority - aPriority;
-	});
+	results.sort((a, b) => (b.risk?.deletePriority ?? 0) - (a.risk?.deletePriority ?? 0));
 
-	return {
-		count: results.length,
-		summary: tierCounts,
-		results,
-	};
+	return { count: results.length, summary: tierCounts, results };
 }

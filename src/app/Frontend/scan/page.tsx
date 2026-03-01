@@ -21,6 +21,8 @@ export default function ScanPage() {
 	const [scanError, setScanError] = useState<string | null>(null);
 	const scanStartedRef = useRef(false); // Use ref to persist across renders
 
+
+	
 	useEffect(() => {
 		// Prevent multiple concurrent scans - ref persists across StrictMode re-renders
 		if (scanStartedRef.current) return;
@@ -73,7 +75,7 @@ export default function ScanPage() {
 				addLog(logId++, "Authenticating with Google and fetching emails...", "pending");
 				setProgress(25);
 
-				const scanResponse = await fetch("/Backend/api/gmail/scan", {
+				const scanResponse = await fetch("/Backend/api/gmail/analyze", {
 					method: "GET",
 					credentials: "include"
 				});
@@ -93,31 +95,9 @@ export default function ScanPage() {
 				addLog(logId++, "✓ Email fetch complete", "done");
 				setProgress(30);
 
-				// Extract data
-				const { count, summary, results } = scanData;
-				addLog(logId++, `Found ${count} services from your emails`, "info");
-				setProgress(40);
-
-				// Show tier breakdown
-				addLog(logId++, `Risk Tiers: ${summary.red} High Risk | ${summary.yellow} Medium Risk | ${summary.green} Safe`, "info");
-				setProgress(60);
-
-				// Breach report
-				const breachCount = results.filter((r: any) => r.breachInfo?.wasBreached).length;
-				if (breachCount > 0) {
-					addLog(logId++, `⚠ ${breachCount} service(s) found in data breaches`, "warn");
-				} else {
-					addLog(logId++, `✓ No known data breaches detected`, "done");
-				}
-				setProgress(80);
-
 				// Finalization
 				addLog(logId++, "Generating DataMap visualization...", "pending");
 				setProgress(90);
-
-				// Summary
-				addLog(logId++, `✓ SCAN COMPLETE: ${count} services analyzed and cached`, "done");
-				setProgress(100);
 
 				setIsScanning(false);
 
