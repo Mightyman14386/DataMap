@@ -23,6 +23,18 @@
       "static/chunks/main-app.js",
       "static/css/app/Frontend/scan/page.css",
       "static/chunks/app/Frontend/scan/page.js"
+    ],
+    "/Frontend/dashboard/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/layout.css",
+      "static/chunks/app/Frontend/dashboard/layout.js"
+    ],
+    "/Frontend/dashboard/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/page.css",
+      "static/chunks/app/Frontend/dashboard/page.js"
     ]
   }
 }

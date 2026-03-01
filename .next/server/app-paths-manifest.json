@@ -2,5 +2,6 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/Frontend/page": "app/Frontend/page.js",
   "/Frontend/authorize/page": "app/Frontend/authorize/page.js",
-  "/Frontend/scan/page": "app/Frontend/scan/page.js"
+  "/Frontend/scan/page": "app/Frontend/scan/page.js",
+  "/Frontend/dashboard/page": "app/Frontend/dashboard/page.js"
 }
