@@ -13,7 +13,7 @@ export const env = createEnv({
 				: z.string().optional(),
 		GOOGLE_CLIENT_ID: z.string(),
 		GOOGLE_CLIENT_SECRET: z.string(),
-		DATABASE_URL: z.string().url(),
+		DATABASE_URL: z.string().url().optional(),
 		OPENAI_API_KEY: z.string().optional(),
 		ANTHROPIC_API_KEY: z.string().optional(),
 		HIBP_API_KEY: z.string().optional(),

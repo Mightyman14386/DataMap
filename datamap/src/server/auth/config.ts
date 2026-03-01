@@ -1,15 +1,8 @@
-import { DrizzleAdapter } from "@auth/drizzle-adapter";
+
 import type { DefaultSession, NextAuthConfig } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
-
-import { env } from "~/env";
-import { db } from "~/server/db/index.ts";
-import {
-	accounts,
-	sessions,
-	users,
-	verificationTokens,
-} from "~/server/db/schema";
+import { FirestoreAdapter } from "@auth/firebase-adapter";
+import { adminDb } from "~/lib/firebase-admin";
 
 
 /**
@@ -55,12 +48,7 @@ export const authConfig = {
 			},
 		}),
 	],
-	adapter: DrizzleAdapter(db, {
-		usersTable: users,
-		accountsTable: accounts,
-		sessionsTable: sessions,
-		verificationTokensTable: verificationTokens,
-	}),
+	adapter: FirestoreAdapter(adminDb),
 	callbacks: {
 		session: ({ session, user }) => ({
 			...session,
