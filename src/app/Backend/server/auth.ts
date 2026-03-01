@@ -39,34 +39,50 @@ export const config: NextAuthConfig = {
   ],
   callbacks: {
     async jwt({ token, account, user }) {
+      console.log("[NextAuth JWT] Input - user:", !!user, "account:", !!account);
+      
       if (account && user) {
-          token.accessToken = account.access_token;
-          token.refreshToken = account.refresh_token;
-          token.userId = user.id;
+        // Ensure we have a proper user ID
+        const userId = user.id || user.email;
+        
+        console.log("[NextAuth JWT] Setting tokens - userId:", userId);
+        
+        token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.userId = userId;
 
-          // Save to Firestore
-          await setDoc(doc(db, "users", user.email!), {
-              email: user.email,
-              name: user.name,
-              image: user.image,
-              accessToken: account.access_token,
-              refreshToken: account.refresh_token,
-              updatedAt: new Date(),
+        // Save to Firestore
+        if (user.email) {
+          await setDoc(doc(db, "users", user.email), {
+            id: userId,
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            updatedAt: new Date(),
           }, { merge: true });
+          console.log("[NextAuth JWT] Saved to Firestore");
+        }
+      } else {
+        console.log("[NextAuth JWT] Returning existing token");
       }
+      
+      console.log("[NextAuth JWT] Token:", { ...token, accessToken: token.accessToken ? "***" : undefined });
       return token;
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken as string | undefined;
-      if (session.user) session.user.id = token.userId as string;
+      console.log("[NextAuth Session] Input - session.user:", session.user, "token:", { ...token, accessToken: token.accessToken ? "***" : undefined });
+      
+      if (session.user) {
+        session.user.id = (token.userId as string) || session.user.email || "unknown";
+        session.accessToken = token.accessToken as string | undefined;
+      }
+      
+      console.log("[NextAuth Session] Output - user.id:", session.user?.id, "hasAccessToken:", !!session.accessToken);
       return session;
     },
   },
 };
 
-const result = NextAuth(config);
-
-export const auth = result.auth as any;
-export const handlers = result.handlers as any;
-export const signIn = result.signIn as any;
-export const signOut = result.signOut as any;
+export const { auth, handlers, signIn, signOut } = NextAuth(config);

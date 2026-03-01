@@ -17,12 +17,80 @@ let lastClaudeRequestTime = 0;
 let lastHibpRequestTime = 0;
 let hibpThrottleChain: Promise<void> = Promise.resolve();
 
-const GEMINI_RATE_LIMIT_MS = 3000; // 20 requests/minute ≈ 3000ms between requests
+const GEMINI_RATE_LIMIT_MS = 12000; // Free tier: 5 req/min = 12000ms between requests
 const CLAUDE_RATE_LIMIT_MS = 2000;
 const HIBP_RATE_LIMIT_MS = 1700;
+const LLM_TIMEOUT_MS = 30000; // 30 second timeout for LLM calls
+const LLM_MAX_RETRIES = 1; // Retry once on failure
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry a promise-returning function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+	fn: () => Promise<T>,
+	maxRetries: number = LLM_MAX_RETRIES,
+	baseDelayMs: number = 1000
+): Promise<T | null> {
+	let lastError: Error | null = null;
+	
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			return await Promise.race([
+				fn(),
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error("LLM timeout")), LLM_TIMEOUT_MS)
+				),
+			]);
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+			console.warn(`[LLM Retry] Attempt ${attempt + 1} failed: ${lastError.message}`);
+			
+			if (attempt < maxRetries) {
+				const delay = baseDelayMs * Math.pow(2, attempt); // Exponential backoff
+				console.log(`[LLM Retry] Waiting ${delay}ms before retry...`);
+				await sleep(delay);
+			}
+		}
+	}
+	
+	console.error(`[LLM Retry] All ${maxRetries + 1} attempts failed:`, lastError?.message);
+	return null;
+}
+
+/**
+ * Extract JSON from text that may be wrapped in markdown code blocks
+ * Handles: ```json {...} ```, ```{...}```, or raw {...}
+ */
+function extractJSON<T>(content: string): T | null {
+	if (!content || typeof content !== "string") return null;
+
+	// Try to extract from markdown code blocks first (```json ... ``` or ``` ... ```)
+	const markdownMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+	const jsonText = markdownMatch ? markdownMatch[1].trim() : content.trim();
+
+	// Try to parse the extracted JSON
+	try {
+		return JSON.parse(jsonText);
+	} catch {
+		// Fallback: try to find raw JSON object/array
+		const objectMatch = jsonText.match(/\{[\s\S]*\}/);
+		const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+		
+		const jsonCandidate = objectMatch?.[0] || arrayMatch?.[0];
+		if (jsonCandidate) {
+			try {
+				return JSON.parse(jsonCandidate);
+			} catch {
+				return null;
+			}
+		}
+	}
+
+	return null;
 }
 
 function parseRetryAfterMs(headerValue: string | null): number {
@@ -431,6 +499,9 @@ export async function analyzePrivacyPolicy(
 		}
 	}
 	try {
+		// Apply rate limiting BEFORE making the request
+		await waitForRateLimit("gemini");
+
 		const geminiKey = env.GEMINI_API_KEY;
 		const claudeKey = env.ANTHROPIC_API_KEY;
 		if (!geminiKey) {
@@ -470,81 +541,76 @@ Respond with ONLY valid JSON (no markdown, no code blocks, no explanations):
 Privacy Policy:
 ${policyText}`;
 
-		const response = await fetch(
-			`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					contents: [
-						{
-							parts: [
+		// Use retry logic with timeout for Gemini
+		const analysisResult = await retryWithBackoff(
+			async () => {
+				const response = await fetch(
+					`https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent?key=${geminiKey}`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							contents: [
 								{
-									text: prompt,
+									parts: [
+										{
+											text: prompt,
+										},
+									],
 								},
 							],
-						},
-					],
-					generationConfig: {
-						temperature: 0.2,
-						maxOutputTokens: 500,
+							generationConfig: {
+								temperature: 0.2,
+								maxOutputTokens: 500,
+							},
+						}),
 					},
-				}),
+				);
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					console.error(`Gemini API error (${response.status}):`, errorText.substring(0, 200));
+					throw new Error(`Gemini API error: ${response.status}`);
+				}
+
+				const data = await response.json();
+				const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+				if (!content) {
+					throw new Error("No content in Gemini response");
+				}
+
+				const parsed = extractJSON<any>(content);
+				if (!parsed) {
+					throw new Error("Could not extract JSON from Gemini response");
+				}
+
+				return {
+					dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
+					aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
+					deleteDifficulty: Math.max(1, Math.min(10, parseInt(parsed.deleteDifficulty) || 5)),
+					summary: parsed.summary || `Privacy analysis for ${serviceName} based on policy review.`,
+					deletionInfo: normalizeDeletionInfo(parsed.deletionInfo, domain || "unknown.com", policyText),
+				};
 			},
+			LLM_MAX_RETRIES
 		);
 
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error(
-				`Gemini API error (${response.status}):`,
-				errorText,
-			);
-			if (claudeKey) {
-				console.warn("Gemini failed; falling back to Claude");
-				return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-			}
-			return null;
+		if (analysisResult) {
+			console.log(`[Gemini Analysis] ${serviceName}: selling=${analysisResult.dataSelling}, aiTraining=${analysisResult.aiTraining}, deleteDifficulty=${analysisResult.deleteDifficulty}`);
+			return analysisResult;
 		}
 
-		const data = await response.json();
-		const content =
-			data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-		if (!content) {
-			console.error("No content in Gemini response");
-			if (claudeKey) {
-				console.warn("Gemini returned empty content; falling back to Claude");
-				return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-			}
-			return null;
+		// Fall back to Claude if Gemini fails
+		if (claudeKey) {
+			console.warn("Gemini failed after retries; falling back to Claude");
+			return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
 		}
 
-		const jsonMatch = content.match(/\{[\s\S]*\}/);
-		if (!jsonMatch) {
-			console.error("Could not extract JSON from Gemini response:", content);
-			if (claudeKey) {
-				console.warn("Gemini response parse failed; falling back to Claude");
-				return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-			}
-			return null;
-		}
-
-		const parsed = JSON.parse(jsonMatch[0]);
-
-		return {
-			dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
-			aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
-			deleteDifficulty: Math.max(
-				1,
-				Math.min(10, parseInt(parsed.deleteDifficulty) || 5),
-			),
-			summary:
-				parsed.summary ||
-				`Privacy analysis for ${serviceName} based on policy review.`,
-			deletionInfo: normalizeDeletionInfo(parsed.deletionInfo, domain || "unknown.com", policyText),
-		};
+		return null;
+		return analysisResult;
 	} catch (error) {
 		console.error(`Gemini analysis error for ${serviceName}:`, error);
 		const claudeKey = env.ANTHROPIC_API_KEY;
@@ -619,15 +685,13 @@ ${policyText}`;
 			return null;
 		}
 
-		const jsonMatch = content.match(/\{[\s\S]*\}/);
-		if (!jsonMatch) {
-			console.error("Could not extract JSON from Claude response:", content);
+		const parsed = extractJSON<any>(content);
+		if (!parsed) {
+			console.error("Could not extract JSON from Claude response:", content.substring(0, 200));
 			return null;
 		}
 
-		const parsed = JSON.parse(jsonMatch[0]);
-
-		return {
+		const analysisResult = {
 			dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
 			aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
 			deleteDifficulty: Math.max(
@@ -639,6 +703,9 @@ ${policyText}`;
 				`Privacy analysis for ${serviceName} based on policy review.`,
 			deletionInfo: normalizeDeletionInfo(parsed.deletionInfo, "unknown.com", policyText),
 		};
+		
+		console.log(`[Claude Analysis] ${serviceName}: selling=${analysisResult.dataSelling}, aiTraining=${analysisResult.aiTraining}, deleteDifficulty=${analysisResult.deleteDifficulty}`);
+		return analysisResult;
 	} catch (error) {
 		console.error(`Claude analysis error for ${serviceName}:`, error);
 		return null;
@@ -709,13 +776,14 @@ export async function batchAnalyzePrivacyPolicies(
 	}
 
 	try {
-		// Try Gemini first
+		// Try Gemini first with timeout and retry
 		const geminiKey = env.GEMINI_API_KEY;
 		if (geminiKey) {
 			await waitForRateLimit("gemini");
-			const geminiBatchResult = await batchAnalyzeWithGemini(
-				nonCachedPolicies,
-				geminiKey,
+			console.log(`[Batch Analysis] Attempting Gemini with timeout=${LLM_TIMEOUT_MS}ms and ${LLM_MAX_RETRIES} retries`);
+			const geminiBatchResult = await retryWithBackoff(
+				() => batchAnalyzeWithGemini(nonCachedPolicies, geminiKey),
+				LLM_MAX_RETRIES
 			);
 			if (geminiBatchResult) {
 				// Merge cached results
@@ -739,9 +807,10 @@ export async function batchAnalyzePrivacyPolicies(
 		const claudeKey = env.ANTHROPIC_API_KEY;
 		if (claudeKey) {
 			await waitForRateLimit("claude");
-			const claudeResult = await batchAnalyzeWithClaude(
-				nonCachedPolicies,
-				claudeKey,
+			console.log(`[Batch Analysis] Attempting Claude with timeout=${LLM_TIMEOUT_MS}ms and ${LLM_MAX_RETRIES} retries`);
+			const claudeResult = await retryWithBackoff(
+				() => batchAnalyzeWithClaude(nonCachedPolicies, claudeKey),
+				LLM_MAX_RETRIES
 			);
 			if (claudeResult) {
 				// Merge cached results
@@ -761,8 +830,17 @@ export async function batchAnalyzePrivacyPolicies(
 			}
 		}
 
-		console.warn("No LLM providers available for batch analysis");
-		return {};
+		console.warn("No LLM providers available for batch analysis - using cached data only");
+		// Return cached data for any policies we have
+		const result: Record<string, PolicyAnalysis> = {};
+		for (const policy of policies) {
+			const normalizedDomain = policy.domain.toLowerCase().trim();
+			const cachedValue = COMMON_COMPANY_CACHE[normalizedDomain as keyof typeof COMMON_COMPANY_CACHE];
+			if (cachedValue) {
+				result[normalizedDomain] = cachedValue;
+			}
+		}
+		return result;
 	} catch (error) {
 		console.error("Batch analysis error:", error);
 		return {};
@@ -821,7 +899,7 @@ Policies to analyze:
 ${policiesText}`;
 
 		const response = await fetch(
-			`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+			`https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent?key=${apiKey}`,
 			{
 				method: "POST",
 				headers: {
@@ -847,6 +925,9 @@ ${policiesText}`;
 
 		if (!response.ok) {
 			console.error(`Gemini batch API error (${response.status})`);
+			const errorText = await response.text();
+			console.error("Error response:", errorText);
+			console.error(`API URL used: https://generativelanguage.googleapis.com/v1beta/models/gemma-3-12b-it:generateContent`);
 			return null;
 		}
 
@@ -858,34 +939,32 @@ ${policiesText}`;
 			return null;
 		}
 
-		const jsonMatch = content.match(/\[[\s\S]*\]/);
-		if (!jsonMatch) {
-			console.error("Could not extract JSON array from response");
+		const parsed = extractJSON<any[]>(content);
+		if (!Array.isArray(parsed)) {
+			console.error("Could not extract JSON array from response:", content.substring(0, 200));
 			return null;
 		}
 
-		const parsed = JSON.parse(jsonMatch[0]);
 		const result: Record<string, PolicyAnalysis> = {};
 
-		if (Array.isArray(parsed)) {
-			for (const item of parsed) {
-				if (item && item.domain) {
-					const matchedPolicy = policies.find((p) => p.domain === item.domain);
-					result[item.domain] = {
-						dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
-						aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
-						deleteDifficulty: Math.max(
-							1,
-							Math.min(10, parseInt(item.deleteDifficulty) || 5),
-						),
-						summary: item.summary || "Privacy analysis based on policy review.",
-						deletionInfo: normalizeDeletionInfo(
-							item.deletionInfo,
-							item.domain,
-							matchedPolicy?.policyText || null,
-						),
-					};
-				}
+		for (const item of parsed) {
+			if (item && item.domain) {
+				const matchedPolicy = policies.find((p) => p.domain === item.domain);
+				result[item.domain] = {
+					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
+					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
+					deleteDifficulty: Math.max(
+						1,
+						Math.min(10, parseInt(item.deleteDifficulty) || 5),
+					),
+					summary: item.summary || "Privacy analysis based on policy review.",
+					deletionInfo: normalizeDeletionInfo(
+						item.deletionInfo,
+						item.domain,
+						matchedPolicy?.policyText || null,
+					),
+				};
+				console.log(`[Gemini Batch] ${item.domain}: selling=${result[item.domain].dataSelling}, aiTraining=${result[item.domain].aiTraining}, deleteDifficulty=${result[item.domain].deleteDifficulty}`);
 			}
 		}
 
@@ -966,34 +1045,31 @@ Policies:\n${policiesText}`,
 			return null;
 		}
 
-		const jsonMatch = content.match(/\[[\s\S]*\]/);
-		if (!jsonMatch) {
-			console.error("Could not extract JSON array from Claude response");
+		const parsed = extractJSON<any[]>(content);
+		if (!Array.isArray(parsed)) {
+			console.error("Could not extract JSON array from Claude response:", content.substring(0, 200));
 			return null;
 		}
 
-		const parsed = JSON.parse(jsonMatch[0]);
 		const result: Record<string, PolicyAnalysis> = {};
 
-		if (Array.isArray(parsed)) {
-			for (const item of parsed) {
-				if (item && item.domain) {
-					const matchedPolicy = policies.find((p) => p.domain === item.domain);
-					result[item.domain] = {
-						dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
-						aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
-						deleteDifficulty: Math.max(
-							1,
-							Math.min(10, parseInt(item.deleteDifficulty) || 5),
-						),
-						summary: item.summary || "Privacy analysis based on policy review.",
-						deletionInfo: normalizeDeletionInfo(
-							item.deletionInfo,
-							item.domain,
-							matchedPolicy?.policyText || null,
-						),
-					};
-				}
+		for (const item of parsed) {
+			if (item && item.domain) {
+				const matchedPolicy = policies.find((p) => p.domain === item.domain);
+				result[item.domain] = {
+					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
+					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
+					deleteDifficulty: Math.max(
+						1,
+						Math.min(10, parseInt(item.deleteDifficulty) || 5),
+					),
+					summary: item.summary || "Privacy analysis based on policy review.",
+					deletionInfo: normalizeDeletionInfo(
+						item.deletionInfo,
+						item.domain,
+						matchedPolicy?.policyText || null,
+					),
+				};
 			}
 		}
 
@@ -1013,9 +1089,11 @@ export async function checkDataBreach(
 	try {
 		const hibpKey = env.HIBP_API_KEY;
 		if (!hibpKey) {
-			console.warn("No HIBP API key configured");
+			console.log("[HIBP] No HIBP API key configured - skipping breach check");
 			return { wasBreached: false, breachCheckStatus: "unavailable" };
 		}
+
+		console.log(`[HIBP] Checking breach for domain: ${domain}`);
 
 		const url = `https://haveibeenpwned.com/api/v3/breaches?domain=${encodeURIComponent(
 			domain,
@@ -1074,6 +1152,7 @@ export async function checkDataBreach(
 		}
 
 		if (!Array.isArray(breaches) || breaches.length === 0) {
+			console.log(`[HIBP] ✓ No breaches found for ${domain}`);
 			return { wasBreached: false, breachCheckStatus: "ok" };
 		}
 
@@ -1084,6 +1163,7 @@ export async function checkDataBreach(
 		);
 		const latest = sorted[0];
 
+		console.log(`[HIBP] ⚠ Breach detected for ${domain}: ${latest.Title}`);
 		return {
 			wasBreached: true,
 			breachName: latest.Title,
