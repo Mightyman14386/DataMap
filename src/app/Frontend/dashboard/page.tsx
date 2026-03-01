@@ -30,7 +30,6 @@ export default function DashboardPage() {
     // Fetch real data from Firebase (cached results, not re-running scan)
     const fetchData = useCallback(async () => {
       try {
-          setLoading(true);
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 20000);
 
