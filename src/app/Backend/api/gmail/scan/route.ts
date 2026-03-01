@@ -1,6 +1,6 @@
-import { auth } from "../../../server/auth.js";
+import { auth } from "../../../server/auth";
   import { google } from "googleapis";
-import { db} from "../../../Firebase/firebase.js";
+import { db} from "../../../Firebase/firebase";
 import { collection, query, where, getDocs, limit, doc, getDoc, setDoc } from "firebase/firestore";
 import path from "path/win32";
 import fs from "fs";
@@ -25,7 +25,8 @@ import fs from "fs";
 
       const messages = await gmail.users.messages.list({
           userId: "me",
-          maxResults: 10,
+          maxResults: 50,
+          q: "confirm OR subject:welcome"
       });
 
       const fullMessages = await Promise.all(                                                                     

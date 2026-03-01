@@ -26,23 +26,24 @@ export default function ScanPage() {
             { time: 12500, text: "SCAN COMPLETE. Generating DataMap...", status: "done" },
         ];
 
-        let timeouts: NodeJS.Timeout[] = [];
-
         sequence.forEach((item, index) => {
             const timeout = setTimeout(() => {
                 setLogs((prev) => [...prev, { id: index, text: item.text, status: item.status as any }]);
                 setProgress(Math.floor(((index + 1) / sequence.length) * 100));
             }, item.time);
-            timeouts.push(timeout);
         });
 
-        const redirectTimeout = setTimeout(() => {
-            // In fully built app, this directs to dashboard. For now, it could push to a non-existent route or just stay.
-            router.push("/Frontend/dashboard");
-        }, 14500);
-        timeouts.push(redirectTimeout);
 
-        return () => timeouts.forEach((t) => clearTimeout(t));
+        fetch("/Backend/api/gmail/scan")
+          .then(res => res.json())
+          .then(data => {
+              console.log(data); // { saved: 10, messages: [...] }
+              router.push("/Frontend/dashboard");
+          })
+          .catch(err => {
+              console.error("Scan failed:", err);
+          });
+
     }, [router]);
 
     return (
