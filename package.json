@@ -5,6 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "build": "next build",
+    "built": "npm run build",
+    "start": "next start",
     "test": "node --experimental-modules scripts/test-risk-engine.mjs",
     "test:privacy": "node scripts/test-privacy-engine.mjs",
     "test:sample": "node scripts/test-samples.mjs",
@@ -41,12 +44,12 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-force-graph-2d": "^1.29.1",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@types/react": "19.2.14",
+    "@types/node": "^25.3.3",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
-    "@types/react": "19.2.14",
-    "ts-node": "^10.9.2",
-    "typescript": "5.9.3"
+    "ts-node": "^10.9.2"
   }
 }
