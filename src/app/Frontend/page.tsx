@@ -3,7 +3,7 @@
 import {
 	AlertTriangle,
 	ArrowRight,
-	Database,
+
 	EyeOff,
 	Lock,
 	Mail,
@@ -32,7 +32,7 @@ export default function Home() {
 			{/* Navigation */}
 			<nav className={styles.nav}>
 				<div className={styles.logo}>
-					<Database className={styles.logoIcon} size={24} />
+					<img src="/logo.svg" alt="DataMap Logo" className={styles.logoIcon} width={24} height={24} style={{ borderRadius: '50%' }} />
 					DataMap
 				</div>
 				<button

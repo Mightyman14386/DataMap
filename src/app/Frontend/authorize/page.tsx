@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Database, EyeOff, Lock, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, EyeOff, Lock, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import DarkVeil from "~/components/DarkVeil";
 import styles from "./page.module.css";
- import { signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 
 export default function AuthorizePage() {
 
@@ -22,7 +22,7 @@ export default function AuthorizePage() {
 
             <nav className={styles.nav}>
                 <Link href="/Frontend" className={styles.logo}>
-                    <Database className={styles.logoIcon} size={24} />
+                    <img src="/logo.svg" alt="DataMap Logo" className={styles.logoIcon} width={24} height={24} style={{ borderRadius: '50%' }} />
                     DataMap
                 </Link>
             </nav>
@@ -85,6 +85,6 @@ export default function AuthorizePage() {
                     </p>
                 </div>
             </section>
-        </main>
+        </main >
     );
 }

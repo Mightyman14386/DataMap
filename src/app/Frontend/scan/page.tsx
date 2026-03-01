@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Database, ShieldCheck, Search, Activity, Cpu } from "lucide-react";
+import { ShieldCheck, Search, Activity, Cpu } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DarkVeil from "~/components/DarkVeil";
@@ -23,7 +23,7 @@ export default function ScanPage() {
 	const scanStartedRef = useRef(false); // Use ref to persist across renders
 
 
-	
+
 	useEffect(() => {
 		// Prevent multiple concurrent scans - ref persists across StrictMode re-renders
 		if (scanStartedRef.current) return;
@@ -47,7 +47,7 @@ export default function ScanPage() {
 
 				// Check authentication status first
 				let logId = 1;
-				addLog(new Date().toISOString().substring(11, 19), logId++, "Verifying authentication status...", "pending");				setProgress(15);
+				addLog(new Date().toISOString().substring(11, 19), logId++, "Verifying authentication status...", "pending"); setProgress(15);
 
 				const sessionResponse = await fetch("/Backend/api/auth/session", {
 					method: "GET",
@@ -64,7 +64,7 @@ export default function ScanPage() {
 
 				const session = await sessionResponse.json();
 				console.log("[Scan] Session data:", session);
-				
+
 				if (!session?.user?.id) {
 					console.error("[Scan] Session missing user.id. Session:", session);
 					throw new Error("Unable to retrieve user session. Please log in again.");
@@ -85,7 +85,7 @@ export default function ScanPage() {
 				if (!scanResponse.ok) {
 					const errorData = await scanResponse.json();
 					const errorMsg = errorData.error || `Scan failed with status ${scanResponse.status}`;
-					
+
 					// Better error messages for specific cases
 					if (errorMsg.includes("No Google account linked")) {
 						throw new Error("Google account not linked. Please complete the authorization flow. Redirecting to authorization page...");
@@ -134,7 +134,7 @@ export default function ScanPage() {
 
 			<nav className={styles.nav}>
 				<div className={styles.logo}>
-					<Database className={styles.logoIcon} size={24} />
+					<img src="/logo.svg" alt="DataMap Logo" className={styles.logoIcon} width={24} height={24} style={{ borderRadius: '50%' }} />
 					DataMap
 				</div>
 				<div className={styles.statusPill}>
@@ -157,8 +157,8 @@ export default function ScanPage() {
 						</div>
 						<h1 className={styles.title}>Email Analysis</h1>
 						<p className={styles.subtitle}>
-							{scanError 
-								? "An error occurred during the scan." 
+							{scanError
+								? "An error occurred during the scan."
 								: "Please wait while we map and evaluate your digital footprint."}
 						</p>
 					</div>

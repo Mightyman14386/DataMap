@@ -29,61 +29,61 @@ export default function DashboardPage() {
 
     // Fetch real data from Firebase (cached results, not re-running scan)
     const fetchData = useCallback(async () => {
-      try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000);
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-          const response = await fetch("/Backend/api/dashboard/get-analysis", {
-              method: "GET",
-              credentials: "include",
-              signal: controller.signal
-          });
+            const response = await fetch("/Backend/api/dashboard/get-analysis", {
+                method: "GET",
+                credentials: "include",
+                signal: controller.signal
+            });
 
-          clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
 
-          if (!response.ok) throw new Error("Failed to fetch analysis data");
+            if (!response.ok) throw new Error("Failed to fetch analysis data");
 
-          const data = await response.json();
+            const data = await response.json();
 
-          if (data.isEmpty || !data.results || data.results.length === 0) {
-              setServices([]);
-              setLoading(false);
-              return;
-          }
+            if (data.isEmpty || !data.results || data.results.length === 0) {
+                setServices([]);
+                setLoading(false);
+                return;
+            }
 
-          const transformedServices = data.results?.map((result: any) => {
-              const tier = result.risk?.tier?.toLowerCase() || "yellow";
-              const riskMap: Record<string, string> = {
-                  "red": "RED", "yellow": "YELLOW", "green": "GREEN", "neutral": "NEUTRAL"
-              };
-              const risk = riskMap[tier] || "NEUTRAL";
-              return {
-                  id: result.service.domain?.replace(".", "-") || "unknown",
-                  name: result.service.serviceName || "Unknown",
-                  risk,
-                  category: "Discovered",
-                  dataSelling: result.policyAnalysis?.dataSelling >= 6 ? "High" : "Low",
-                  aiTraining: result.policyAnalysis?.aiTraining >= 6 ? "Yes" : "No",
-                  summary: result.policyAnalysis?.summary || "Analysis pending...",
-                  lastBreach: result.breachInfo?.breachName || "N/A",
-                  usage: "Active",
-                  deletionInfo: result.deletionInfo ? { ...result.deletionInfo } : null,
-              };
-          }) || [];
+            const transformedServices = data.results?.map((result: any) => {
+                const tier = result.risk?.tier?.toLowerCase() || "yellow";
+                const riskMap: Record<string, string> = {
+                    "red": "RED", "yellow": "YELLOW", "green": "GREEN", "neutral": "NEUTRAL"
+                };
+                const risk = riskMap[tier] || "NEUTRAL";
+                return {
+                    id: result.service.domain?.replace(".", "-") || "unknown",
+                    name: result.service.serviceName || "Unknown",
+                    risk,
+                    category: "Discovered",
+                    dataSelling: result.policyAnalysis?.dataSelling >= 6 ? "High" : "Low",
+                    aiTraining: result.policyAnalysis?.aiTraining >= 6 ? "Yes" : "No",
+                    summary: result.policyAnalysis?.summary || "Analysis pending...",
+                    lastBreach: result.breachInfo?.breachName || "N/A",
+                    usage: "Active",
+                    deletionInfo: result.deletionInfo ? { ...result.deletionInfo } : null,
+                };
+            }) || [];
 
-          setServices(transformedServices);
-          setError(null);
-      } catch (err: any) {
-          if (err.name === 'AbortError') {
-              setError("Dashboard load took too long. Try refreshing the page.");
-          } else {
-              setError("Unable to load analysis results.");
-          }
-          setServices([]);
-      } finally {
-          setLoading(false);
-      }
-  }, []);
+            setServices(transformedServices);
+            setError(null);
+        } catch (err: any) {
+            if (err.name === 'AbortError') {
+                setError("Dashboard load took too long. Try refreshing the page.");
+            } else {
+                setError("Unable to load analysis results.");
+            }
+            setServices([]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
     useEffect(() => {
         void fetchData();
     }, []);
@@ -97,38 +97,6 @@ export default function DashboardPage() {
         serviceCountRef.current = services.length;
     }, [services.length]);
 
-    useEffect(() => {
-        let prevCount = 0;
-        let staleTicks = 0;
-        const MAX_POLL_MINUTES = 10;
-        const startTime = Date.now();
-
-        const interval = setInterval(async () => {
-            if (Date.now() - startTime > MAX_POLL_MINUTES * 60 * 1000) {
-                setIsScanning(false);
-                clearInterval(interval);
-                return;
-            }
-
-            await fetchData();
-
-            // Read latest count from ref (not stale closure)
-            const currentCount = serviceCountRef.current;
-            if (currentCount === prevCount) {
-                staleTicks++;
-                // 8 ticks × 5s = 40s with no change → scan done
-                if (staleTicks >= 8) {
-                    setIsScanning(false);
-                    clearInterval(interval);
-                }
-            } else {
-                prevCount = currentCount;
-                staleTicks = 0;
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, [fetchData]);
 
 
     const filteredServices = services.filter(
@@ -140,12 +108,13 @@ export default function DashboardPage() {
     const yellowRisks = services.filter(s => s.risk === "YELLOW").length;
     const neutralRisks = services.filter(s => s.risk === "NEUTRAL").length;
     const greenRisks = services.filter(s => s.risk === "GREEN").length;
+    const breachedAccounts = services.filter(s => s.lastBreach && s.lastBreach !== "N/A").length;
 
     // Calculate a health score (0-100)
     // RED = -10 points, YELLOW = -5 points, NEUTRAL = -3 points, GREEN = 0 points
-    const score = totalAccounts > 0 
-      ? Math.round(100 - ((redRisks * 10 + yellowRisks * 5 + neutralRisks * 3) / totalAccounts) * 100 / 10)
-      : 100;
+    const score = totalAccounts > 0
+        ? Math.round(100 - ((redRisks * 10 + yellowRisks * 5 + neutralRisks * 3) / totalAccounts) * 100 / 10)
+        : 100;
 
     const graphNodes = [
         { id: "user", name: "Your Account", val: 50, color: COLORS.BLUE, group: 0, emailNode: true },
@@ -167,7 +136,6 @@ export default function DashboardPage() {
             <div>
                 <div className={styles.pageHeader}>
                     <h1 className={styles.pageTitle}>
-                        <Activity className={styles.pageTitleIcon} />
                         DataMap Overview
                     </h1>
                 </div>
@@ -187,7 +155,6 @@ export default function DashboardPage() {
             <div>
                 <div className={styles.pageHeader}>
                     <h1 className={styles.pageTitle}>
-                        <Activity className={styles.pageTitleIcon} />
                         DataMap Overview
                     </h1>
                 </div>
@@ -206,7 +173,6 @@ export default function DashboardPage() {
         <div>
             <div className={styles.pageHeader}>
                 <h1 className={styles.pageTitle}>
-                    <Activity className={styles.pageTitleIcon} />
                     DataMap Overview
                 </h1>
             </div>
@@ -225,8 +191,8 @@ export default function DashboardPage() {
                     <div className={styles.widgetTitle}>
                         <ShieldAlert size={16} color="#FF003C" /> Breach Alerts
                     </div>
-                    <div className={`${styles.widgetValue} ${styles.valueRed}`}>{redRisks}</div>
-                    <div className={styles.widgetSubtext}>High-risk policies or leaks</div>
+                    <div className={`${styles.widgetValue} ${styles.valueRed}`}>{breachedAccounts}</div>
+                    <div className={styles.widgetSubtext}>Accounts found in known leaks</div>
                 </div>
 
                 <div className={`${styles.widget} ${styles.widgetHalf}`}>
@@ -239,20 +205,21 @@ export default function DashboardPage() {
 
                 {/* The Visual Web */}
                 {services.length > 0 && (
-                <div className={`${styles.widget} ${styles.widgetFull}`}>
-                    <div className={styles.widgetTitle}>The Data Web</div>
-                    <div className={styles.graphContainer}>
-                        <ForceGraphWeb
-                            nodes={graphNodes}
-                            links={graphLinks}
-                            onNodeClick={(node) => {
-                                if (!node.emailNode) {
-                                    setSelectedAccount(node);
-                                }
-                            }}
-                        />
+                    <div className={`${styles.widget} ${styles.widgetFull}`}>
+                        <div className={styles.widgetTitle}>The Data Web</div>
+                        <div className={styles.graphContainer}>
+                            <ForceGraphWeb
+                                nodes={graphNodes}
+                                links={graphLinks}
+                                onNodeClick={(node) => {
+                                    if (!node.emailNode) {
+                                        const fullService = services.find(s => s.id === node.id);
+                                        setSelectedAccount(fullService || node);
+                                    }
+                                }}
+                            />
+                        </div>
                     </div>
-                </div>
                 )}
 
                 {/* Account Inventory */}
@@ -345,22 +312,22 @@ export default function DashboardPage() {
                                         <ExternalLink size={16} color={COLORS.BLUE} />
                                         Account Deletion & Data Removal
                                     </div>
-                                    
+
                                     <div style={{ fontSize: "0.9rem", marginBottom: "1rem" }}>
                                         <strong>Status:</strong> {selectedAccount.deletionInfo.availability === "available" ? "✓ Available" : selectedAccount.deletionInfo.availability === "limited" ? "⚠ Limited" : "? Unknown"}
                                     </div>
 
                                     {selectedAccount.deletionInfo.accountDeletionUrl && (
                                         <div style={{ marginBottom: "0.75rem" }}>
-                                            <a 
-                                                href={selectedAccount.deletionInfo.accountDeletionUrl} 
-                                                target="_blank" 
+                                            <a
+                                                href={selectedAccount.deletionInfo.accountDeletionUrl}
+                                                target="_blank"
                                                 rel="noopener noreferrer"
-                                                style={{ 
-                                                    color: COLORS.BLUE, 
-                                                    textDecoration: "none", 
-                                                    display: "flex", 
-                                                    alignItems: "center", 
+                                                style={{
+                                                    color: COLORS.BLUE,
+                                                    textDecoration: "none",
+                                                    display: "flex",
+                                                    alignItems: "center",
                                                     gap: "0.5rem",
                                                     fontSize: "0.9rem"
                                                 }}
@@ -372,15 +339,15 @@ export default function DashboardPage() {
 
                                     {selectedAccount.deletionInfo.dataDeletionUrl && (
                                         <div style={{ marginBottom: "0.75rem" }}>
-                                            <a 
-                                                href={selectedAccount.deletionInfo.dataDeletionUrl} 
-                                                target="_blank" 
+                                            <a
+                                                href={selectedAccount.deletionInfo.dataDeletionUrl}
+                                                target="_blank"
                                                 rel="noopener noreferrer"
-                                                style={{ 
-                                                    color: COLORS.BLUE, 
-                                                    textDecoration: "none", 
-                                                    display: "flex", 
-                                                    alignItems: "center", 
+                                                style={{
+                                                    color: COLORS.BLUE,
+                                                    textDecoration: "none",
+                                                    display: "flex",
+                                                    alignItems: "center",
                                                     gap: "0.5rem",
                                                     fontSize: "0.9rem"
                                                 }}

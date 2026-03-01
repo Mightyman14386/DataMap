@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Database, LayoutDashboard, LogOut, User } from "lucide-react";
+import { LayoutDashboard, LogOut, User } from "lucide-react";
 import styles from "./dashboard.module.css";
 import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
@@ -29,7 +29,7 @@ export default function DashboardLayout({
             {/* Top Navigation Bar */}
             <header className={styles.topNav}>
                 <div className={styles.logo}>
-                    <Database className={styles.logoIcon} size={28} />
+                    <img src="/logo.svg" alt="DataMap Logo" className={styles.logoIcon} width={28} height={28} style={{ borderRadius: '50%' }} />
                     <span>DataMap</span>
                 </div>
 
@@ -42,11 +42,11 @@ export default function DashboardLayout({
                         <User size={20} color="#94A3B8" />
                     </div>
                     <Link href="/Frontend">
-                        <button 
-                            className={styles.logoutButton} 
-                            title="Logout" 
+                        <button
+                            className={styles.logoutButton}
+                            title="Logout"
                             onClick={() => signOut({ callbackUrl: "/Frontend" })}
-                        > 
+                        >
                             <LogOut size={20} />
                         </button>
                     </Link>
