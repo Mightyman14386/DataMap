@@ -1,139 +1,17 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { env } from "~/env";
 import { getPolicyCached, savePolicyCache } from "~/app/Backend/Firebase/firebase-db";
+import {
+	fetchPrivacyPolicyText,
+	analyzePrivacyPolicy,
+	getDeletionInfoForService,
+} from "~/app/Backend/server/privacy/analysis-service";
 
 const analyzeRequestSchema = z.object({
 	serviceName: z.string().min(1),
 	domain: z.string().min(1),
 });
-
-/**
- * Fetch privacy policy text from a domain using Jina reader (free)
- */
-async function fetchPrivacyPolicyText(domain: string): Promise<string | null> {
-	try {
-		// Common privacy policy URL patterns
-		const urls = [
-			`https://${domain}/privacy`,
-			`https://${domain}/privacy-policy`,
-			`https://${domain}/policies/privacy`,
-			`https://${domain}/legal/privacy`,
-		];
-
-		for (const url of urls) {
-			try {
-				// Use Jina reader to get clean markdown text from privacy policy
-				const jinaUrl = `https://r.jina.ai/${encodeURIComponent(url)}`;
-				const resp = await fetch(jinaUrl, {
-					method: "GET",
-					headers: {
-						"Accept": "text/markdown",
-					},
-				});
-
-				if (resp.ok) {
-					const text = await resp.text();
-					// Only return if we got meaningful content (>500 chars)
-					if (text && text.length > 500) {
-						return text.slice(0, 10000); // Limit to first 10k chars
-					}
-				}
-			} catch {
-				// Continue to next URL
-				continue;
-			}
-		}
-
-		return null;
-	} catch (error) {
-		console.error("Error fetching privacy policy:", error);
-		return null;
-	}
-}
-
-/**
- * Analyze privacy policy using OpenAI or Claude
- */
-async function analyzeWithLLM(
-	serviceName: string,
-	policyText: string,
-): Promise<{
-	dataSelling: number;
-	aiTraining: number;
-	deleteDifficulty: number;
-	summary: string;
-} | null> {
-	try {
-		const openaiKey = env.OPENAI_API_KEY;
-		if (!openaiKey) {
-			console.warn("No LLM API key configured, using default scores");
-			return null;
-		}
-
-		const prompt = `Analyze the following privacy policy for ${serviceName}. Rate on a scale of 1-10 where 1 is least concerning and 10 is most concerning:
-
-1. **Data Selling**: Does the company sell user data to third parties?
-2. **AI Training**: Does the company use user data to train AI/ML models?
-3. **Deletion Difficulty**: How hard is it to delete your account and data?
-
-Respond with ONLY valid JSON (no markdown, no code blocks):
-{
-  "dataSelling": <number>,
-  "aiTraining": <number>,
-  "deleteDifficulty": <number>,
-  "summary": "<2-sentence summary>"
-}
-
-Policy text:
-${policyText}`;
-
-		const response = await fetch("https://api.openai.com/v1/chat/completions", {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${openaiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				model: "gpt-3.5-turbo",
-				messages: [{ role: "user", content: prompt }],
-				temperature: 0.3,
-				max_tokens: 300,
-			}),
-		});
-
-		if (!response.ok) {
-			console.error("OpenAI API error:", response.status);
-			return null;
-		}
-
-		const data = await response.json();
-		const content = data.choices?.[0]?.message?.content;
-
-		if (!content) return null;
-
-		// Parse JSON from response
-		const jsonMatch = content.match(/\{[\s\S]*\}/);
-		if (!jsonMatch) return null;
-
-		const parsed = JSON.parse(jsonMatch[0]);
-		return {
-			dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
-			aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
-			deleteDifficulty: Math.max(
-				1,
-				Math.min(10, parseInt(parsed.deleteDifficulty) || 5),
-			),
-			summary:
-				parsed.summary ||
-				`Default analysis for ${serviceName} privacy policy.`,
-		};
-	} catch (error) {
-		console.error("LLM analysis error:", error);
-		return null;
-	}
-}
 
 export async function POST(request: Request) {
 	const parsed = analyzeRequestSchema.safeParse(await request.json());
@@ -157,6 +35,13 @@ export async function POST(request: Request) {
 		}
 
 		if (cached && cached.dataSelling && cached.aiTraining) {
+			const deletionInfo = getDeletionInfoForService(normalizedDomain, null, {
+				dataSelling: cached.dataSelling,
+				aiTraining: cached.aiTraining,
+				deleteDifficulty: cached.deleteDifficulty,
+				summary: cached.summary,
+			});
+
 			return NextResponse.json(
 				{
 					serviceName: cached.serviceName,
@@ -165,6 +50,7 @@ export async function POST(request: Request) {
 					aiTraining: cached.aiTraining,
 					deleteDifficulty: cached.deleteDifficulty,
 					summary: cached.summary,
+					deletionInfo,
 					source: "cache",
 					analyzedAt: cached.analyzedAt,
 				},
@@ -172,28 +58,45 @@ export async function POST(request: Request) {
 			);
 		}
 
-		// Not in cache, fetch and analyze
-		const policyText = await fetchPrivacyPolicyText(normalizedDomain);
+		let policyText: string | null = null;
 
-		if (!policyText) {
-			// Return default neutral scores if can't fetch policy
-			return NextResponse.json(
-				{
-					serviceName,
-					domain: normalizedDomain,
+		// Not in cache, check built-in cache first
+		let analysis = await analyzePrivacyPolicy(serviceName, "", normalizedDomain);
+
+		// If not in built-in cache, fetch from web and analyze with Gemini
+		if (!analysis) {
+			policyText = await fetchPrivacyPolicyText(normalizedDomain);
+
+			if (!policyText) {
+				const defaultAnalysis = {
 					dataSelling: 5,
 					aiTraining: 5,
 					deleteDifficulty: 5,
 					summary: "Privacy policy not publicly available. Using default risk assessment.",
-					source: "default",
-					analyzedAt: new Date(),
-				},
-				{ status: 200 },
-			);
-		}
+				};
+				const deletionInfo = getDeletionInfoForService(
+					normalizedDomain,
+					null,
+					defaultAnalysis,
+				);
 
-		// Analyze with LLM
-		const analysis = await analyzeWithLLM(serviceName, policyText);
+				// Return default neutral scores if can't fetch policy
+				return NextResponse.json(
+					{
+						serviceName,
+						domain: normalizedDomain,
+						...defaultAnalysis,
+						deletionInfo,
+						source: "default",
+						analyzedAt: new Date(),
+					},
+					{ status: 200 },
+				);
+			}
+
+			// Analyze with Gemini
+			analysis = await analyzePrivacyPolicy(serviceName, policyText, normalizedDomain);
+		}
 
 		const finalAnalysis = analysis || {
 			dataSelling: 5,
@@ -201,6 +104,42 @@ export async function POST(request: Request) {
 			deleteDifficulty: 5,
 			summary: "Analysis unavailable. Using default risk assessment.",
 		};
+
+		const deletionInfo = getDeletionInfoForService(
+			normalizedDomain,
+			policyText,
+			analysis || finalAnalysis,
+		);
+
+		// Determine source: built-in cache, Gemini LLM, or default
+		let source: "built-in-cache" | "llm" | "default" = "default";
+		const isInBuiltInCache = Object.keys({
+			"google.com": true,
+			"facebook.com": true,
+			"instagram.com": true,
+			"tiktok.com": true,
+			"linkedin.com": true,
+			"amazon.com": true,
+			"twitter.com": true,
+			"x.com": true,
+			"spotify.com": true,
+			"dropbox.com": true,
+			"apple.com": true,
+			"microsoft.com": true,
+			"github.com": true,
+			"openai.com": true,
+			"reddit.com": true,
+			"discord.com": true,
+			"gmail.com": true,
+			"outlook.com": true,
+			"youtube.com": true,
+		}).includes(normalizedDomain);
+
+		if (isInBuiltInCache && analysis) {
+			source = "built-in-cache";
+		} else if (analysis) {
+			source = "llm";
+		}
 
 		// Cache the result (best effort)
 		try {
@@ -211,7 +150,7 @@ export async function POST(request: Request) {
 				finalAnalysis.aiTraining,
 				finalAnalysis.deleteDifficulty,
 				finalAnalysis.summary,
-				analysis ? "llm" : "default",
+				source,
 			);
 		} catch (cacheWriteError) {
 			console.warn("Policy cache write failed, returning uncached analysis:", cacheWriteError);
@@ -222,7 +161,8 @@ export async function POST(request: Request) {
 				serviceName,
 				domain: normalizedDomain,
 				...finalAnalysis,
-				source: analysis ? "llm" : "default",
+				deletionInfo,
+				source,
 				analyzedAt: new Date(),
 			},
 			{ status: 200 },
