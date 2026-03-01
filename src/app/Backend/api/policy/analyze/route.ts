@@ -16,6 +16,7 @@ const analyzeRequestSchema = z.object({
 export async function POST(request: Request) {
 	const parsed = analyzeRequestSchema.safeParse(await request.json());
 	if (!parsed.success) {
+		console.error("[Route] Invalid request body:", parsed.error);
 		return NextResponse.json(
 			{ error: "Invalid request body" },
 			{ status: 400 },
@@ -25,13 +26,18 @@ export async function POST(request: Request) {
 	const { serviceName, domain } = parsed.data;
 	const normalizedDomain = domain.trim().toLowerCase();
 
+	console.log(`[Route] Policy analyze request for ${serviceName} (${normalizedDomain})`);
+
 	try {
 		// Check cache first (best effort)
 		let cached: Awaited<ReturnType<typeof getPolicyCached>> = null;
 		try {
 			cached = await getPolicyCached(normalizedDomain);
+			if (cached) {
+				console.log(`[Route] ✓ Found Firebase cache for ${normalizedDomain}`);
+			}
 		} catch (cacheReadError) {
-			console.warn("Policy cache read failed, continuing without cache:", cacheReadError);
+			console.warn("[Route] Policy cache read failed:", cacheReadError);
 		}
 
 		if (cached && cached.dataSelling && cached.aiTraining) {
@@ -42,6 +48,7 @@ export async function POST(request: Request) {
 				summary: cached.summary,
 			});
 
+			console.log(`[Route] Returning cached result for ${normalizedDomain}`);
 			return NextResponse.json(
 				{
 					serviceName: cached.serviceName,
@@ -61,13 +68,16 @@ export async function POST(request: Request) {
 		let policyText: string | null = null;
 
 		// Not in cache, check built-in cache first
+		console.log(`[Route] Checking built-in cache for ${normalizedDomain}`);
 		let analysis = await analyzePrivacyPolicy(serviceName, "", normalizedDomain);
 
 		// If not in built-in cache, fetch from web and analyze with Gemini
 		if (!analysis) {
+			console.log(`[Route] Not in built-in cache, fetching policy from web...`);
 			policyText = await fetchPrivacyPolicyText(normalizedDomain);
 
 			if (!policyText) {
+				console.warn(`[Route] No policy text found for ${normalizedDomain}, using defaults`);
 				const defaultAnalysis = {
 					dataSelling: 5,
 					aiTraining: 5,
@@ -95,6 +105,7 @@ export async function POST(request: Request) {
 			}
 
 			// Analyze with Gemini
+			console.log(`[Route] Analyzing policy with Gemini for ${serviceName}...`);
 			analysis = await analyzePrivacyPolicy(serviceName, policyText, normalizedDomain);
 		}
 
@@ -141,6 +152,8 @@ export async function POST(request: Request) {
 			source = "llm";
 		}
 
+		console.log(`[Route] Result: source=${source}, dataSelling=${finalAnalysis.dataSelling}, aiTraining=${finalAnalysis.aiTraining}`);
+
 		// Cache the result (best effort)
 		try {
 			await savePolicyCache(
@@ -152,8 +165,9 @@ export async function POST(request: Request) {
 				finalAnalysis.summary,
 				source,
 			);
+			console.log(`[Route] ✓ Saved to Firebase cache for ${normalizedDomain}`);
 		} catch (cacheWriteError) {
-			console.warn("Policy cache write failed, returning uncached analysis:", cacheWriteError);
+			console.warn("[Route] Policy cache write failed:", cacheWriteError);
 		}
 
 		return NextResponse.json(
@@ -168,7 +182,7 @@ export async function POST(request: Request) {
 			{ status: 200 },
 		);
 	} catch (error) {
-		console.error("Policy analysis error:", error);
+		console.error("[Route] Policy analysis error:", error);
 		return NextResponse.json(
 			{ error: "Failed to analyze policy" },
 			{ status: 500 },

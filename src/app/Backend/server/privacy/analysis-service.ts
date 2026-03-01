@@ -1,6 +1,6 @@
 /**
  * Privacy analysis service
- * Handles fetching policies, analyzing with LLM (Gemini primary, Claude fallback), and checking breaches
+ * Handles fetching policies, analyzing with Gemini LLM, and checking breaches
  */
 
 import { env } from "~/env";
@@ -8,23 +8,31 @@ import { env } from "~/env";
 // Rate limiting queue to respect API limits
 const requestQueue: {
 	timestamp: number;
-	provider: "gemini" | "claude";
+	provider: "gemini";
 }[] = [];
 
 // Keep track of last request time per provider (milliseconds)
 let lastGeminiRequestTime = 0;
-let lastClaudeRequestTime = 0;
 let lastHibpRequestTime = 0;
 let hibpThrottleChain: Promise<void> = Promise.resolve();
 
 const GEMINI_RATE_LIMIT_MS = 12000; // Free tier: 5 req/min = 12000ms between requests
-const CLAUDE_RATE_LIMIT_MS = 2000;
 const HIBP_RATE_LIMIT_MS = 1700;
 const LLM_TIMEOUT_MS = 30000; // 30 second timeout for LLM calls
 const LLM_MAX_RETRIES = 1; // Retry once on failure
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Ensure summary is a non-empty string
+ */
+function ensureSummary(summary: unknown, fallback: string = "Privacy analysis based on policy review."): string {
+	if (typeof summary === 'string' && summary.trim().length > 0) {
+		return summary.trim();
+	}
+	return fallback;
 }
 
 /**
@@ -68,23 +76,48 @@ async function retryWithBackoff<T>(
 function extractJSON<T>(content: string): T | null {
 	if (!content || typeof content !== "string") return null;
 
-	// Try to extract from markdown code blocks first (```json ... ``` or ``` ... ```)
-	const markdownMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-	const jsonText = markdownMatch ? markdownMatch[1].trim() : content.trim();
-
+	const trimmed = content.trim();
+	
+	// Try multiple markdown code block formats
+	const markdownPatterns = [
+		/```(?:json)?\s*([\s\S]*?)```/,  // Standard markdown code blocks
+		/^```[\s\S]*?\n([\s\S]*?)\n```$/,  // With newlines at boundaries
+		/```[\s\S]*?([\s\S]*?)[\s\S]*?```/,  // More permissive matching
+	];
+	
+	let jsonText = trimmed;
+	for (const pattern of markdownPatterns) {
+		const match = trimmed.match(pattern);
+		if (match && match[1]) {
+			jsonText = match[1].trim();
+			break;
+		}
+	}
+	
 	// Try to parse the extracted JSON
 	try {
-		return JSON.parse(jsonText);
-	} catch {
-		// Fallback: try to find raw JSON object/array
+		const parsed = JSON.parse(jsonText);
+		return parsed as T;
+	} catch (e) {
+		// Fallback: try to find raw JSON object/array using greedy matching
+		let jsonCandidate: string | null = null;
+		
+		// Try to find the largest complete JSON object/array
 		const objectMatch = jsonText.match(/\{[\s\S]*\}/);
 		const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
 		
-		const jsonCandidate = objectMatch?.[0] || arrayMatch?.[0];
+		if (objectMatch) {
+			jsonCandidate = objectMatch[0];
+		} else if (arrayMatch) {
+			jsonCandidate = arrayMatch[0];
+		}
+		
 		if (jsonCandidate) {
 			try {
-				return JSON.parse(jsonCandidate);
-			} catch {
+				const parsed = JSON.parse(jsonCandidate);
+				return parsed as T;
+			} catch (parseError) {
+				console.warn("[JSON] Fallback parsing failed:", parseError instanceof Error ? parseError.message : String(parseError));
 				return null;
 			}
 		}
@@ -451,32 +484,80 @@ export async function fetchPrivacyPolicyText(
 			`https://${domain}/privacy-policy`,
 			`https://${domain}/policies/privacy`,
 			`https://${domain}/legal/privacy`,
+			`https://${domain}/about/privacy`,
+			`https://${domain}/policy/privacy`,
+			`https://www.${domain}/privacy`,
+			`https://www.${domain}/privacy-policy`,
 		];
+
+		let consecutiveErrors = 0;
+		const MAX_CONSECUTIVE_ERRORS = 2; // Fail fast after 2 consecutive errors
 
 		for (const url of urls) {
 			try {
 				const jinaUrl = `https://r.jina.ai/${encodeURIComponent(url)}`;
+				console.log(`[Jina] Attempting to fetch from: ${url}`);
+				
+				// Use AbortController with timeout
+				const controller = new AbortController();
+				const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout per request
+				
 				const resp = await fetch(jinaUrl, {
 					method: "GET",
 					headers: {
 						Accept: "text/markdown",
+						"User-Agent": "Mozilla/5.0 (compatible; DataMapBot/1.0)",
 					},
+					signal: controller.signal,
 				});
+
+				clearTimeout(timeoutId);
 
 				if (resp.ok) {
 					const text = await resp.text();
 					if (text && text.length > 500) {
-						return text.slice(0, 7000); // Increased limit for better analysis
+						console.log(`[Jina] ✓ Successfully fetched policy from ${url} (${text.length} chars)`);
+						return text.slice(0, 7000);
+					} else if (text) {
+						console.warn(`[Jina] Content too short from ${url}: ${text.length} chars`);
+						consecutiveErrors++;
 					}
+				} else if (resp.status === 429) {
+					console.warn(`[Jina] ⚠ Rate limited (429) for ${domain}, skipping remaining URLs`);
+					return null;
+				} else if (resp.status === 400 || resp.status === 422) {
+					console.warn(`[Jina] HTTP ${resp.status} from ${url} (likely invalid path)`);
+					consecutiveErrors++;
+					// Fail fast after repeated errors from same domain
+					if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+						console.warn(`[Jina] ✗ Domain ${domain} returning errors, skipping remaining URLs`);
+						return null;
+					}
+				} else {
+					console.warn(`[Jina] HTTP ${resp.status} from ${url}`);
+					consecutiveErrors++;
 				}
-			} catch {
+			} catch (err) {
+				if (err instanceof Error && err.name === 'AbortError') {
+					console.warn(`[Jina] ⏱ Timeout (5s) fetching ${url}`);
+				} else {
+					console.warn(`[Jina] Fetch failed for ${url}:`, err instanceof Error ? err.message : err);
+				}
+				consecutiveErrors++;
+				
+				// Skip this domain if too many errors
+				if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+					console.warn(`[Jina] ✗ ${domain} hit max errors, skipping remaining URLs`);
+					return null;
+				}
 				continue;
 			}
 		}
 
+		console.warn(`[Jina] ✗ Could not fetch policy from any URL for ${domain}`);
 		return null;
 	} catch (error) {
-		console.error(`Error fetching privacy policy for ${domain}:`, error);
+		console.error(`[Jina] Unexpected error fetching policy for ${domain}:`, error);
 		return null;
 	}
 }
@@ -494,22 +575,19 @@ export async function analyzePrivacyPolicy(
 		const normalizedDomain = domain.toLowerCase().trim();
 		const cached = COMMON_COMPANY_CACHE[normalizedDomain];
 		if (cached) {
-			console.log(`Using cached analysis for ${normalizedDomain}`);
+			console.log(`[Analysis] Using built-in cache for ${normalizedDomain}`);
 			return cached;
 		}
 	}
+	
 	try {
 		// Apply rate limiting BEFORE making the request
-		await waitForRateLimit("gemini");
+		await waitForRateLimit();
 
 		const geminiKey = env.GEMINI_API_KEY;
-		const claudeKey = env.ANTHROPIC_API_KEY;
+		
 		if (!geminiKey) {
-			if (claudeKey) {
-				console.warn("No Gemini API key configured; falling back to Claude");
-				return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-			}
-			console.warn("No Gemini or Claude API key configured");
+			console.warn(`[Analysis] ✗ No Gemini API key configured for ${serviceName}`);
 			return null;
 		}
 
@@ -523,27 +601,31 @@ Based on the actual policy text, rate on a scale of 1-10 where 1 is least concer
 
 Be objective and base ratings only on what the policy explicitly states or clearly implies. If a practice is not mentioned, assume neutral (around 5).
 
-Respond with ONLY valid JSON (no markdown, no code blocks, no explanations):
+IMPORTANT: Return ONLY raw JSON with NO markdown formatting, NO code blocks, NO triple backticks, NO explanation text. Start with { and end with }.
+
+Raw JSON response:
 {
-  "dataSelling": <number 1-10>,
-  "aiTraining": <number 1-10>,
-  "deleteDifficulty": <number 1-10>,
-	"summary": "<2-sentence summary of the key privacy concerns based on the policy>",
-	"deletionInfo": {
-		"availability": "available|limited|unknown",
-		"accountDeletionUrl": "<absolute https URL or null>",
-		"dataDeletionUrl": "<absolute https URL or null>",
-		"retentionWindow": "<e.g. 30 days, 90 days, unknown>",
-		"instructions": "<clear account/data deletion steps for a user>"
-	}
+  "dataSelling": <integer 1-10>,
+  "aiTraining": <integer 1-10>,
+  "deleteDifficulty": <integer 1-10>,
+  "summary": "<2-sentence summary of the key privacy concerns based on the policy>",
+  "deletionInfo": {
+    "availability": "available|limited|unknown",
+    "accountDeletionUrl": "<absolute https URL or null>",
+    "dataDeletionUrl": "<absolute https URL or null>",
+    "retentionWindow": "<e.g. 30 days, 90 days, unknown>",
+    "instructions": "<clear account/data deletion steps for a user>"
+  }
 }
 
 Privacy Policy:
 ${policyText}`;
 
 		// Use retry logic with timeout for Gemini
+		console.log(`[Analysis] Analyzing ${serviceName} with Gemini (timeout: ${LLM_TIMEOUT_MS}ms, retries: ${LLM_MAX_RETRIES})`);
 		const analysisResult = await retryWithBackoff(
 			async () => {
+				console.log(`[Analysis] Sending request to Gemini for ${serviceName}`);
 				const response = await fetch(
 					`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
 					{
@@ -563,7 +645,7 @@ ${policyText}`;
 							],
 							generationConfig: {
 								temperature: 0.2,
-								maxOutputTokens: 500,
+								maxOutputTokens: 8192,
 							},
 						}),
 					},
@@ -571,175 +653,73 @@ ${policyText}`;
 
 				if (!response.ok) {
 					const errorText = await response.text();
-					console.error(`Gemini API error (${response.status}):`, errorText.substring(0, 200));
-					throw new Error(`Gemini API error: ${response.status}`);
+					console.error(`[Analysis] Gemini API error (${response.status}) for ${serviceName}:`, errorText.substring(0, 300));
+					throw new Error(`Gemini API error: ${response.status} - ${errorText.substring(0, 100)}`);
 				}
 
 				const data = await response.json();
 				const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
 				if (!content) {
+					console.error(`[Analysis] No content in Gemini response for ${serviceName}`, JSON.stringify(data).substring(0, 200));
 					throw new Error("No content in Gemini response");
 				}
 
+				console.log(`[Analysis] Raw Gemini response (first 300 chars):`, content.substring(0, 300));
+
 				const parsed = extractJSON<any>(content);
 				if (!parsed) {
+					console.error(`[Analysis] Could not extract JSON from Gemini response for ${serviceName}:`, content.substring(0, 500));
 					throw new Error("Could not extract JSON from Gemini response");
 				}
 
-				return {
-					dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
-					aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
-					deleteDifficulty: Math.max(1, Math.min(10, parseInt(parsed.deleteDifficulty) || 5)),
-					summary: parsed.summary || `Privacy analysis for ${serviceName} based on policy review.`,
+				// Safely parse numeric values - handle both numbers and strings
+				const toNumber = (val: unknown, defaultVal: number = 5): number => {
+					if (typeof val === 'number') return Math.max(1, Math.min(10, val));
+					if (typeof val === 'string') {
+						const num = parseInt(val, 10);
+						if (!isNaN(num)) return Math.max(1, Math.min(10, num));
+					}
+					return defaultVal;
+				};
+
+				const result = {
+					dataSelling: toNumber(parsed.dataSelling, 5),
+					aiTraining: toNumber(parsed.aiTraining, 5),
+					deleteDifficulty: toNumber(parsed.deleteDifficulty, 5),
+					summary: ensureSummary(parsed.summary, `Privacy analysis for ${serviceName} based on policy review.`),
 					deletionInfo: normalizeDeletionInfo(parsed.deletionInfo, domain || "unknown.com", policyText),
 				};
+
+				console.log(`[Analysis] ✓ Successfully parsed: selling=${result.dataSelling}, aiTraining=${result.aiTraining}, deletion=${result.deleteDifficulty}`);
+				return result;
 			},
 			LLM_MAX_RETRIES
 		);
 
 		if (analysisResult) {
-			console.log(`[Gemini Analysis] ${serviceName}: selling=${analysisResult.dataSelling}, aiTraining=${analysisResult.aiTraining}, deleteDifficulty=${analysisResult.deleteDifficulty}`);
+			console.log(`[Analysis] ✓ ${serviceName}: selling=${analysisResult.dataSelling}, aiTraining=${analysisResult.aiTraining}, deletion=${analysisResult.deleteDifficulty}`);
 			return analysisResult;
 		}
 
-		// Fall back to Claude if Gemini fails
-		if (claudeKey) {
-			console.warn("Gemini failed after retries; falling back to Claude");
-			return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-		}
-
+		console.warn(`[Analysis] ✗ Analysis failed for ${serviceName}`);
 		return null;
-		return analysisResult;
 	} catch (error) {
-		console.error(`Gemini analysis error for ${serviceName}:`, error);
-		const claudeKey = env.ANTHROPIC_API_KEY;
-		if (claudeKey) {
-			console.warn("Gemini error; falling back to Claude");
-			return await analyzePrivacyPolicyWithClaude(serviceName, policyText, claudeKey);
-		}
+		console.error(`[Analysis] Unexpected error analyzing ${serviceName}:`, error instanceof Error ? error.message : error);
 		return null;
 	}
 }
 
-async function analyzePrivacyPolicyWithClaude(
-	serviceName: string,
-	policyText: string,
-	apiKey: string,
-): Promise<PolicyAnalysis | null> {
-	try {
-		const prompt = `You are a privacy policy analyst specializing in data privacy risks. Analyze the following privacy policy for ${serviceName}.
-
-Based on the actual policy text, rate on a scale of 1-10 where 1 is least concerning and 10 is most concerning:
-
-1. **Data Selling Risk**: Does the company sell, share, or license user data to third parties for profit? (1=never sells data, 10=actively monetizes all user data)
-2. **AI Training Risk**: Does the company use user data to train AI/ML models? (1=never uses for AI training, 10=heavily trains AI models on user data)
-3. **Deletion Difficulty**: How hard/long is it to delete your account and all personal data? (1=very easy, instant deletion, 10=nearly impossible, prolonged data retention)
-
-Be objective and base ratings only on what the policy explicitly states or clearly implies. If a practice is not mentioned, assume neutral (around 5).
-
-Respond with ONLY valid JSON (no markdown, no code blocks, no explanations):
-{
-  "dataSelling": <number 1-10>,
-  "aiTraining": <number 1-10>,
-  "deleteDifficulty": <number 1-10>,
-	"summary": "<2-sentence summary of the key privacy concerns based on the policy>",
-	"deletionInfo": {
-		"availability": "available|limited|unknown",
-		"accountDeletionUrl": "<absolute https URL or null>",
-		"dataDeletionUrl": "<absolute https URL or null>",
-		"retentionWindow": "<e.g. 30 days, 90 days, unknown>",
-		"instructions": "<clear account/data deletion steps for a user>"
-	}
-}
-
-Privacy Policy:
-${policyText}`;
-
-		const response = await fetch("https://api.anthropic.com/v1/messages", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": apiKey,
-				"anthropic-version": "2023-06-01",
-			},
-			body: JSON.stringify({
-				model: "claude-3-5-haiku-latest",
-				max_tokens: 700,
-				temperature: 0.2,
-				messages: [{ role: "user", content: prompt }],
-			}),
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error(`Claude API error (${response.status}):`, errorText);
-			return null;
-		}
-
-		const data = await response.json();
-		const content = data.content?.[0]?.text;
-
-		if (!content) {
-			console.error("No content in Claude response");
-			return null;
-		}
-
-		const parsed = extractJSON<any>(content);
-		if (!parsed) {
-			console.error("Could not extract JSON from Claude response:", content.substring(0, 200));
-			return null;
-		}
-
-		const analysisResult = {
-			dataSelling: Math.max(1, Math.min(10, parseInt(parsed.dataSelling) || 5)),
-			aiTraining: Math.max(1, Math.min(10, parseInt(parsed.aiTraining) || 5)),
-			deleteDifficulty: Math.max(
-				1,
-				Math.min(10, parseInt(parsed.deleteDifficulty) || 5),
-			),
-			summary:
-				parsed.summary ||
-				`Privacy analysis for ${serviceName} based on policy review.`,
-			deletionInfo: normalizeDeletionInfo(parsed.deletionInfo, "unknown.com", policyText),
-		};
-		
-		console.log(`[Claude Analysis] ${serviceName}: selling=${analysisResult.dataSelling}, aiTraining=${analysisResult.aiTraining}, deleteDifficulty=${analysisResult.deleteDifficulty}`);
-		return analysisResult;
-	} catch (error) {
-		console.error(`Claude analysis error for ${serviceName}:`, error);
-		return null;
-	}
-}
 
 /**
  * Wait for rate limit to pass for a given provider
  */
-async function waitForRateLimit(
-	provider: "gemini" | "claude",
-): Promise<void> {
-	let lastTime = 0;
-	let limit = 0;
-
-	if (provider === "gemini") {
-		lastTime = lastGeminiRequestTime;
-		limit = GEMINI_RATE_LIMIT_MS;
-	} else if (provider === "claude") {
-		lastTime = lastClaudeRequestTime;
-		limit = CLAUDE_RATE_LIMIT_MS;
+async function waitForRateLimit(): Promise<void> {
+	const elapsed = Date.now() - lastGeminiRequestTime;
+	if (elapsed < GEMINI_RATE_LIMIT_MS) {
+		await new Promise((resolve) => setTimeout(resolve, GEMINI_RATE_LIMIT_MS - elapsed));
 	}
-
-	const elapsed = Date.now() - lastTime;
-	if (elapsed < limit) {
-		await new Promise((resolve) => setTimeout(resolve, limit - elapsed));
-	}
-
-	// Update last request time
-	if (provider === "gemini") {
-		lastGeminiRequestTime = Date.now();
-	} else if (provider === "claude") {
-		lastClaudeRequestTime = Date.now();
-	}
+	lastGeminiRequestTime = Date.now();
 }
 
 /**
@@ -803,34 +783,7 @@ export async function batchAnalyzePrivacyPolicies(
 			}
 		}
 
-		// Fallback to Claude if Gemini fails
-		const claudeKey = env.ANTHROPIC_API_KEY;
-		if (claudeKey) {
-			await waitForRateLimit("claude");
-			console.log(`[Batch Analysis] Attempting Claude with timeout=${LLM_TIMEOUT_MS}ms and ${LLM_MAX_RETRIES} retries`);
-			const claudeResult = await retryWithBackoff(
-				() => batchAnalyzeWithClaude(nonCachedPolicies, claudeKey),
-				LLM_MAX_RETRIES
-			);
-			if (claudeResult) {
-				// Merge cached results
-				const allCached = COMMON_COMPANY_CACHE;
-				const result: Record<string, PolicyAnalysis> = {
-					...claudeResult,
-				};
-				for (const policy of policies) {
-					const normalizedDomain = policy.domain.toLowerCase().trim();
-					const cachedValue =
-						allCached[normalizedDomain as keyof typeof COMMON_COMPANY_CACHE];
-					if (cachedValue) {
-						result[normalizedDomain] = cachedValue;
-					}
-				}
-				return result;
-			}
-		}
-
-		console.warn("No LLM providers available for batch analysis - using cached data only");
+		console.warn(`[Batch Analysis] No LLM providers available - using cached data only`);
 		// Return cached data for any policies we have
 		const result: Record<string, PolicyAnalysis> = {};
 		for (const policy of policies) {
@@ -876,21 +829,23 @@ For EACH policy, rate on a scale of 1-10:
 2. **AI Training Risk**: Does the company use user data to train AI/ML models? (1=never, 10=heavily uses for AI training)
 3. **Deletion Difficulty**: How hard/long is it to delete your account? (1=very easy/instant, 10=nearly impossible/prolonged retention)
 
-Respond with ONLY valid JSON array (one object per policy analyzed, matching the input order):
+IMPORTANT: Return ONLY raw JSON array with NO markdown formatting, NO code blocks, NO triple backticks, NO explanation text. Start with [ and end with ].
+
+Raw JSON array response:
 [
   {
     "domain": "example1.com",
-    "dataSelling": <number 1-10>,
-    "aiTraining": <number 1-10>,
-    "deleteDifficulty": <number 1-10>,
-		"summary": "<2-sentence summary>",
-		"deletionInfo": {
-			"availability": "available|limited|unknown",
-			"accountDeletionUrl": "<absolute https URL or null>",
-			"dataDeletionUrl": "<absolute https URL or null>",
-			"retentionWindow": "<e.g. 30 days, 90 days, unknown>",
-			"instructions": "<clear account/data deletion steps for a user>"
-		}
+    "dataSelling": <integer 1-10>,
+    "aiTraining": <integer 1-10>,
+    "deleteDifficulty": <integer 1-10>,
+    "summary": "<2-sentence summary>",
+    "deletionInfo": {
+      "availability": "available|limited|unknown",
+      "accountDeletionUrl": "<absolute https URL or null>",
+      "dataDeletionUrl": "<absolute https URL or null>",
+      "retentionWindow": "<e.g. 30 days, 90 days, unknown>",
+      "instructions": "<clear account/data deletion steps for a user>"
+    }
   },
   ...
 ]
@@ -917,7 +872,7 @@ ${policiesText}`;
 					],
 					generationConfig: {
 						temperature: 0.2,
-						maxOutputTokens: 2000,
+						maxOutputTokens: 8192,
 					},
 				}),
 			},
@@ -939,143 +894,53 @@ ${policiesText}`;
 			return null;
 		}
 
+		console.log(`[Gemini Batch] Raw response (first 200 chars):`, content.substring(0, 200));
+
 		const parsed = extractJSON<any[]>(content);
 		if (!Array.isArray(parsed)) {
-			console.error("Could not extract JSON array from response:", content.substring(0, 200));
+			console.error("Could not extract JSON array from response:", content.substring(0, 500));
 			return null;
 		}
+
+		// Safely parse numeric values
+		const toNumber = (val: unknown, defaultVal: number = 5): number => {
+			if (typeof val === 'number') return Math.max(1, Math.min(10, val));
+			if (typeof val === 'string') {
+				const num = parseInt(val, 10);
+				if (!isNaN(num)) return Math.max(1, Math.min(10, num));
+			}
+			return defaultVal;
+		};
 
 		const result: Record<string, PolicyAnalysis> = {};
 
 		for (const item of parsed) {
 			if (item && item.domain) {
 				const matchedPolicy = policies.find((p) => p.domain === item.domain);
+				const dataSelling = toNumber(item.dataSelling, 5);
+				const aiTraining = toNumber(item.aiTraining, 5);
+				const deleteDifficulty = toNumber(item.deleteDifficulty, 5);
+				const summary = ensureSummary(item.summary, "Privacy analysis based on policy review.");
+
 				result[item.domain] = {
-					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
-					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
-					deleteDifficulty: Math.max(
-						1,
-						Math.min(10, parseInt(item.deleteDifficulty) || 5),
-					),
-					summary: item.summary || "Privacy analysis based on policy review.",
+					dataSelling,
+					aiTraining,
+					deleteDifficulty,
+					summary,
 					deletionInfo: normalizeDeletionInfo(
 						item.deletionInfo,
 						item.domain,
 						matchedPolicy?.policyText || null,
 					),
 				};
-				console.log(`[Gemini Batch] ${item.domain}: selling=${result[item.domain].dataSelling}, aiTraining=${result[item.domain].aiTraining}, deleteDifficulty=${result[item.domain].deleteDifficulty}`);
+				console.log(`[Gemini Batch] ✓ ${item.domain}: selling=${dataSelling}, aiTraining=${aiTraining}, deletion=${deleteDifficulty}, summary="${summary.substring(0, 50)}..."`);
 			}
 		}
 
+		console.log(`[Gemini Batch] Successfully processed ${Object.keys(result).length} policies`);
 		return result;
 	} catch (error) {
 		console.error("Gemini batch analysis error:", error);
-		return null;
-	}
-}
-
-/**
- * Batch analyze using Anthropic Claude
- */
-async function batchAnalyzeWithClaude(
-	policies: Array<{
-		serviceName: string;
-		domain: string;
-		policyText: string;
-	}>,
-	apiKey: string,
-): Promise<Record<string, PolicyAnalysis> | null> {
-	try {
-		const policiesText = policies
-			.map(
-				(p, i) => `
-POLICY ${i + 1}: ${p.serviceName} (${p.domain})
-${p.policyText.substring(0, 2000)}
----`,
-			)
-			.join("\n");
-
-		const response = await fetch("https://api.anthropic.com/v1/messages", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": apiKey,
-				"anthropic-version": "2023-06-01",
-			},
-			body: JSON.stringify({
-				model: "claude-3-5-haiku-latest",
-				max_tokens: 2000,
-				temperature: 0.2,
-				messages: [
-					{
-						role: "user",
-						content: `You are a privacy policy analyst. Analyze policies and rate privacy risks 1-10.
-
-Return ONLY valid JSON array. Each item must include:
-- domain
-- dataSelling (1-10)
-- aiTraining (1-10)
-- deleteDifficulty (1-10)
-- summary
-- deletionInfo: {
-    availability: available|limited|unknown,
-    accountDeletionUrl: absolute https URL or null,
-    dataDeletionUrl: absolute https URL or null,
-    retentionWindow: short string or null,
-    instructions: clear user-facing steps
-  }
-
-Policies:\n${policiesText}`,
-					},
-				],
-			}),
-		});
-
-		if (!response.ok) {
-			console.error(`Claude batch API error (${response.status})`);
-			return null;
-		}
-
-		const data = await response.json();
-		const content = data.content?.[0]?.text;
-
-		if (!content) {
-			console.error("No content in Claude batch response");
-			return null;
-		}
-
-		const parsed = extractJSON<any[]>(content);
-		if (!Array.isArray(parsed)) {
-			console.error("Could not extract JSON array from Claude response:", content.substring(0, 200));
-			return null;
-		}
-
-		const result: Record<string, PolicyAnalysis> = {};
-
-		for (const item of parsed) {
-			if (item && item.domain) {
-				const matchedPolicy = policies.find((p) => p.domain === item.domain);
-				result[item.domain] = {
-					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
-					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
-					deleteDifficulty: Math.max(
-						1,
-						Math.min(10, parseInt(item.deleteDifficulty) || 5),
-					),
-					summary: item.summary || "Privacy analysis based on policy review.",
-					deletionInfo: normalizeDeletionInfo(
-						item.deletionInfo,
-						item.domain,
-						matchedPolicy?.policyText || null,
-					),
-				};
-			}
-		}
-
-		return result;
-	} catch (error) {
-		console.error("Claude batch analysis error:", error);
 		return null;
 	}
 }
