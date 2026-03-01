@@ -39,7 +39,7 @@ export default function AuthorizePage() {
                         </div>
                         <h1 className={styles.title}>Authorization Required</h1>
                         <p className={styles.subtitle}>
-                            Grant read-only access to securely map your digital footprint.
+                            Grant read-only access to securely map your digital privacy footprint
                         </p>
                     </div>
 
@@ -49,22 +49,15 @@ export default function AuthorizePage() {
                             <li className={styles.permissionItem}>
                                 <ShieldCheck size={20} className={styles.permissionIconSafe} />
                                 <div>
-                                    <h4 className={styles.permissionName}>Read Email Meta-data</h4>
-                                    <p className={styles.permissionDesc}>Access strictly limited to Senders, Subjects, and Timestamps.</p>
-                                </div>
-                            </li>
-                            <li className={styles.permissionItem}>
-                                <EyeOff size={20} className={styles.permissionIconSafe} />
-                                <div>
-                                    <h4 className={styles.permissionName}>No Content Access</h4>
-                                    <p className={styles.permissionDesc}>We cannot and will never read the body of your emails.</p>
+                                    <h4 className={styles.permissionName}>Read Emails</h4>
+                                    <p className={styles.permissionDesc}>Access Email data</p>
                                 </div>
                             </li>
                             <li className={styles.permissionItem}>
                                 <AlertTriangle size={20} className={styles.permissionIconWarn} />
                                 <div>
                                     <h4 className={styles.permissionName}>Breach Cross-check</h4>
-                                    <p className={styles.permissionDesc}>Found services will be verified against HaveIBeenPwned API.</p>
+                                    <p className={styles.permissionDesc}>Found services will be verified against HaveIBeenPwned API</p>
                                 </div>
                             </li>
                         </ul>
