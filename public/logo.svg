@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <circle cx="256" cy="256" r="256" fill="#3b236e" />
+  
+  <g transform="translate(-10, 10)">
+    <!-- Envelope Base -->
+    <path d="M120 160 h 272 v 170 h -272 z" fill="#FFFFFF" />
+    
+    <!-- Flap Lines -->
+    <path d="M120 160 l 136 100 l 136 -100" stroke="#3b236e" stroke-width="16" stroke-linejoin="round" fill="none" />
+    <path d="M120 330 l 110 -80" stroke="#3b236e" stroke-width="16" stroke-linecap="round" fill="none" />
+  </g>
+
+  <!-- Magnifying Glass Handle -->
+  <line x1="300" y1="260" x2="170" y2="390" stroke="#FFFFFF" stroke-width="50" stroke-linecap="round" />
+  <line x1="290" y1="250" x2="330" y2="290" stroke="#FFFFFF" stroke-width="50" stroke-linecap="round" />
+  
+  <!-- Magnifying Glass Lens -->
+  <circle cx="320" cy="230" r="80" stroke="#FFFFFF" stroke-width="24" fill="#3b236e" />
+  
+  <!-- Lens Reflection -->
+  <path d="M285 190 a 45 45 0 0 1 25 -15" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" />
+</svg>
