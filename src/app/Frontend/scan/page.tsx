@@ -9,7 +9,7 @@ import styles from "./page.module.css";
 
 export default function ScanPage() {
     const router = useRouter();
-    const [logs, setLogs] = useState<{ id: number; text: string; status: "pending" | "done" | "warn" | "error" | "info" }[]>([]);
+    const [logs, setLogs] = useState<{ time: string; id: number; text: string; status: "pending" | "done" | "warn" | "error" | "info" }[]>([]);
     const [progress, setProgress] = useState(0);
 
     useEffect(() => {
@@ -28,21 +28,21 @@ export default function ScanPage() {
 
         sequence.forEach((item, index) => {
             const timeout = setTimeout(() => {
-                setLogs((prev) => [...prev, { id: index, text: item.text, status: item.status as any }]);
+                setLogs((prev) => [...prev, { time: new Date().toISOString().substring(11, 19), id: index, text: item.text, status: item.status as any }]);
                 setProgress(Math.floor(((index + 1) / sequence.length) * 100));
             }, item.time);
         });
 
-
         fetch("/Backend/api/gmail/scan")
           .then(res => res.json())
           .then(data => {
-              console.log(data); // { saved: 10, messages: [...] }
               router.push("/Frontend/dashboard");
           })
           .catch(err => {
               console.error("Scan failed:", err);
           });
+
+          
 
     }, [router]);
 
@@ -104,7 +104,7 @@ export default function ScanPage() {
                         <div className={styles.terminalBody}>
                             {logs.map((log) => (
                                 <div key={log.id} className={styles.logLine}>
-                                    <span className={styles.logTime}>[{new Date().toISOString().substring(11, 19)}]</span>
+                                    <span className={styles.logTime}>[{log.time}]</span>
                                     <span className={`${styles.logStatus} ${styles[log.status]}`}>
                                         {log.status === 'pending' && '> '}
                                         {log.status === 'done' && '✓ '}
@@ -115,12 +115,6 @@ export default function ScanPage() {
                                     <span className={styles.logText}>{log.text}</span>
                                 </div>
                             ))}
-                            {progress < 100 && (
-                                <div className={styles.logLine}>
-                                    <span className={styles.logTime}>[{new Date().toISOString().substring(11, 19)}]</span>
-                                    <span className={styles.cursorBlink}>_</span>
-                                </div>
-                            )}
                         </div>
                     </div>
 
