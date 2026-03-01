@@ -19,15 +19,17 @@ export interface ServiceInput {
 	usage: {
 		lastUsedAt?: Date;
 	};
+	isDataUnavailable?: boolean; // True when policy analysis couldn't be retrieved
 }
 
 export interface RiskScore {
 	serviceName: string;
 	domain: string;
 	score: number; // 0-100
-	tier: "green" | "yellow" | "red";
+	tier: "green" | "yellow" | "red" | "neutral";
 	reasons: string[];
 	deletePriority?: number;
+	isDataUnavailable?: boolean; // True when analysis couldn't be performed
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -82,12 +84,20 @@ export function scoreServiceRisk(input: ServiceInput): RiskScore {
 	);
 
 	// Determine risk tier
-	let tier: "green" | "yellow" | "red" = "green";
-	if (score >= 70) {
+	let tier: "green" | "yellow" | "red" | "neutral" = "green";
+	
+	// If we couldn't analyze the policy, mark as neutral
+	if (input.isDataUnavailable) {
+		tier = "neutral";
+		reasons.push("Insufficient data to assess risk level");
+	} else if (score >= 70) {
 		tier = "red";
 	} else if (score >= 40) {
 		tier = "yellow";
 	}
+
+	console.log(`[Risk Scoring] ${input.serviceName}: score=${score}, tier=${tier}, policy(selling=${dataSelling}, ai=${aiTraining}, delete=${deleteDifficulty})`);
+
 
 	// Add policy-specific reasons
 	if (dataSelling >= 7) {

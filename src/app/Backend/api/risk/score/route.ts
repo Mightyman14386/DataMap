@@ -77,12 +77,12 @@ export async function POST(request: Request) {
 		usage: lastUsedAt ? { lastUsedAt } : {},
 	});
 
-	if (!body.persist || !session?.user?.id) {
+	if (!body.persist || !session?.user?.id || !session?.user?.email) {
 		return NextResponse.json({ risk }, { status: 200 });
 	}
 
 	try {
-		const userId = session.user.id;
+		const userId = session.user.email; // Use email as userId to match Firestore key
 
 		// Upsert discovered service
 		const serviceId = await upsertDiscoveredService(
