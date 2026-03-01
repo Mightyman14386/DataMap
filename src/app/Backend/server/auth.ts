@@ -62,7 +62,7 @@ export const config: NextAuthConfig = {
               updatedAt: new Date(),
           }, { merge: true });
           console.log("[NextAuth JWT] Saved to Firestore");
-        }
+        
       } else {
         console.log("[NextAuth JWT] Returning existing token");
       }

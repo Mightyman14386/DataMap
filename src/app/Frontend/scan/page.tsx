@@ -8,6 +8,7 @@ import DarkVeil from "~/components/DarkVeil";
 import styles from "./page.module.css";
 
 interface ScanLog {
+	time: string;
 	id: number;
 	text: string;
 	status: "pending" | "done" | "warn" | "error" | "info";
@@ -26,14 +27,15 @@ export default function ScanPage() {
 		if (scanStartedRef.current) return;
 		scanStartedRef.current = true;
 
-		const addLog = (id: number, text: string, status: ScanLog["status"]) => {
-			setLogs(prev => [...prev, { id, text, status }]);
+		const addLog = (time: string, id: number, text: string, status: ScanLog["status"]) => {
+			setLogs(prev => [...prev, { time, id, text, status }]);
 		};
 
 		const runScan = async () => {
 			try {
 				// Add initial log
 				const initialLog: ScanLog = {
+					time: new Date().toISOString().substring(11, 19),
 					id: 0,
 					text: "INITIATING PROTOCOL: DISCOVERY_SCAN_V2",
 					status: "info"
@@ -43,7 +45,7 @@ export default function ScanPage() {
 
 				// Check authentication status first
 				let logId = 1;
-				addLog(logId++, "Verifying authentication status...", "pending");				setProgress(15);
+				addLog(new Date().toISOString().substring(11, 19), logId++, "Verifying authentication status...", "pending");				setProgress(15);
 
 				const sessionResponse = await fetch("/Backend/api/auth/session", {
 					method: "GET",
@@ -66,11 +68,11 @@ export default function ScanPage() {
 					throw new Error("Unable to retrieve user session. Please log in again.");
 				}
 
-				addLog(logId++, "✓ Authentication verified", "done");
+				addLog(new Date().toISOString().substring(11, 19), logId++, "✓ Authentication verified", "done");
 				setProgress(20);
 
 				// Start the scan
-				addLog(logId++, "Authenticating with Google and fetching emails...", "pending");
+				addLog(new Date().toISOString().substring(11, 19), logId++, "Authenticating with Google and fetching emails...", "pending");
 				setProgress(25);
 
 				const scanResponse = await fetch("/Backend/api/gmail/scan", {
@@ -90,33 +92,33 @@ export default function ScanPage() {
 				}
 
 				const scanData = await scanResponse.json();
-				addLog(logId++, "✓ Email fetch complete", "done");
+				addLog(new Date().toISOString().substring(11, 19), logId++, "✓ Email fetch complete", "done");
 				setProgress(30);
 
 				// Extract data
 				const { count, summary, results } = scanData;
-				addLog(logId++, `Found ${count} services from your emails`, "info");
+				addLog(new Date().toISOString().substring(11, 19), logId++, `Found ${count} services from your emails`, "info");
 				setProgress(40);
 
 				// Show tier breakdown
-				addLog(logId++, `Risk Tiers: ${summary.red} High Risk | ${summary.yellow} Medium Risk | ${summary.green} Safe`, "info");
+				addLog(new Date().toISOString().substring(11, 19), logId++, `Risk Tiers: ${summary.red} High Risk | ${summary.yellow} Medium Risk | ${summary.green} Safe`, "info");
 				setProgress(60);
 
 				// Breach report
 				const breachCount = results.filter((r: any) => r.breachInfo?.wasBreached).length;
 				if (breachCount > 0) {
-					addLog(logId++, `⚠ ${breachCount} service(s) found in data breaches`, "warn");
+					addLog(new Date().toISOString().substring(11, 19), logId++, `⚠ ${breachCount} service(s) found in data breaches`, "warn");
 				} else {
-					addLog(logId++, `✓ No known data breaches detected`, "done");
+					addLog(new Date().toISOString().substring(11, 19), logId++, `✓ No known data breaches detected`, "done");
 				}
 				setProgress(80);
 
 				// Finalization
-				addLog(logId++, "Generating DataMap visualization...", "pending");
+				addLog(new Date().toISOString().substring(11, 19), logId++, "Generating DataMap visualization...", "pending");
 				setProgress(90);
 
 				// Summary
-				addLog(logId++, `✓ SCAN COMPLETE: ${count} services analyzed and cached`, "done");
+				addLog(new Date().toISOString().substring(11, 19), logId++, `✓ SCAN COMPLETE: ${count} services analyzed and cached`, "done");
 				setProgress(100);
 
 				setIsScanning(false);
@@ -129,7 +131,7 @@ export default function ScanPage() {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				console.error("Scan failed:", error);
 				setScanError(errorMessage);
-				addLog(999, `✖ SCAN FAILED: ${errorMessage}`, "error");
+				addLog(new Date().toISOString().substring(11, 19), 999, `✖ SCAN FAILED: ${errorMessage}`, "error");
 				setIsScanning(false);
 				setProgress(100);
 
@@ -205,7 +207,7 @@ export default function ScanPage() {
 						<div className={styles.terminalBody}>
 							{logs.map((log) => (
 								<div key={log.id} className={styles.logLine}>
-									<span className={styles.logTime}>[{new Date().toISOString().substring(11, 19)}]</span>
+									<span className={styles.logTime}>[{log.time}]</span>
 									<span className={`${styles.logStatus} ${styles[log.status]}`}>
 										{log.status === 'pending' && '> '}
 										{log.status === 'done' && '✓ '}
@@ -218,7 +220,7 @@ export default function ScanPage() {
 							))}
 							{isScanning && (
 								<div className={styles.logLine}>
-									<span className={styles.logTime}>[{new Date().toISOString().substring(11, 19)}]</span>
+									{/* <span className={styles.logTime}>[{new Date().toISOString().substring(11, 19)}]</span> */}
 									<span className={styles.cursorBlink}>_</span>
 								</div>
 							)}
