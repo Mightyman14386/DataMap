@@ -202,7 +202,7 @@ export default function Home() {
 						Securely connect with Google to begin the initial scan.
 					</p>
 
-					<button type="button" className={styles.googleBtn} onClick={() => router.push("/authorize")}>
+					<button type="button" className={styles.googleBtn} onClick={() => router.push("/Frontend/authorize")}>
 						<svg
 							role="img"
 							aria-label="Google Logo"
@@ -240,8 +240,8 @@ export default function Home() {
 							lineHeight: "1.5",
 						}}
 					>
-						By continuing, you agree to our <Link href="/terms" style={{ color: "#a594fd" }}>Terms of Service</Link> and{" "}
-						<Link href="/privacy" style={{ color: "#a594fd" }}>Privacy Policy</Link>.
+						By continuing, you agree to our <Link href="/Frontend/terms" style={{ color: "#a594fd" }}>Terms of Service</Link> and{" "}
+						<Link href="/Frontend/privacy" style={{ color: "#a594fd" }}>Privacy Policy</Link>.
 					</p>
 				</div>
 			</section>
@@ -250,9 +250,9 @@ export default function Home() {
 			<footer className={styles.footer}>
 				<div>© 2026 DataMap. All rights reserved.</div>
 				<div className={styles.footerLinks}>
-					<Link href="/terms">Terms</Link>
-					<Link href="/privacy">Privacy</Link>
-					<Link href="/contact">Contact</Link>
+					<Link href="/Frontend/terms">Terms</Link>
+					<Link href="/Frontend/privacy">Privacy</Link>
+					<Link href="/Frontend/contact">Contact</Link>
 				</div>
 			</footer>
 		</main>

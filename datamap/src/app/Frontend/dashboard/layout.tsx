@@ -38,7 +38,7 @@ export default function DashboardLayout({
                     <div className={styles.avatar}>
                         <User size={20} color="#94A3B8" />
                     </div>
-                    <Link href="/">
+                    <Link href="/Frontend">
                         <button className={styles.logoutButton} title="Logout">
                             <LogOut size={20} />
                         </button>

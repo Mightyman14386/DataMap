@@ -7,7 +7,7 @@ export default function ContactPage() {
         <main className={styles.main}>
             <div style={{ position: "relative", zIndex: 10, maxWidth: "600px", margin: "0 auto", padding: "4rem 5%" }}>
                 <Link
-                    href="/"
+                    href="/Frontend"
                     style={{
                         display: "inline-flex",
                         alignItems: "center",

@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import styles from "../page.module.css";
 
-export default function PrivacyPage() {
+export default function TermsPage() {
     return (
         <main className={styles.main}>
             <div style={{ position: "relative", zIndex: 10, maxWidth: "800px", margin: "0 auto", padding: "4rem 5%" }}>
                 <Link
-                    href="/"
+                    href="/Frontend"
                     style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -30,9 +30,9 @@ export default function PrivacyPage() {
                 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "2rem" }}>
                         <div className={styles.securityBadge} style={{ width: "48px", height: "48px", marginBottom: "0" }}>
-                            <ShieldCheck size={24} />
+                            <FileText size={24} />
                         </div>
-                        <h1 className={styles.title} style={{ fontSize: "2.5rem", margin: 0 }}>Privacy Policy</h1>
+                        <h1 className={styles.title} style={{ fontSize: "2.5rem", margin: 0 }}>Terms of Service</h1>
                     </div>
 
                     <div style={{ color: "#8a8f98", lineHeight: "1.7", fontSize: "1.05rem" }}>
@@ -40,36 +40,49 @@ export default function PrivacyPage() {
                             <strong style={{ color: "#fff" }}>Effective Date:</strong> {new Date().toLocaleDateString()}
                         </p>
                         <h2 style={{ marginTop: "2rem", marginBottom: "1rem", color: "#fff", fontSize: "1.5rem", fontWeight: "600" }}>
-                            1. Data Collection
+                            1. Acceptance of Terms
                         </h2>
                         <p style={{ marginBottom: "1.5rem" }}>
-                            We access your email account strictly through secure OAuth mechanisms.
-                            We <strong style={{ color: "#fff" }}>only</strong> collect and analyze email headers (Senders
-                            and Subject lines). We <strong style={{ color: "#fff" }}>never</strong> download, read, or store the
-                            actual content (body) of your personal emails.
+                            By accessing or using DataMap ("Service"), you agree to be bound by
+                            these Terms of Service. If you do not agree to these terms, please do
+                            not use the Service.
                         </p>
                         <h2 style={{ marginTop: "2rem", marginBottom: "1rem", color: "#fff", fontSize: "1.5rem", fontWeight: "600" }}>
-                            2. Data Usage
+                            2. Description of Service
                         </h2>
                         <p style={{ marginBottom: "1.5rem" }}>
-                            The metadata we analyze is used solely to identify online services you
-                            have interacted with in the past. This data is processed locally and securely.
+                            DataMap is a service that scans your email metadata (headers, senders,
+                            and subjects) to identify accounts and services you have signed up for.
                         </p>
                         <h2 style={{ marginTop: "2rem", marginBottom: "1rem", color: "#fff", fontSize: "1.5rem", fontWeight: "600" }}>
-                            3. Data Sharing
+                            3. Disclaimer of Warranties and Limitation of Liability
                         </h2>
                         <p style={{ marginBottom: "1.5rem" }}>
-                            We do not sell, rent, or trade your personal information. Your data is
-                            never shared with third parties for marketing purposes.
+                            <strong style={{ color: "#fff" }}>
+                                YOUR USE OF THE SERVICE IS AT YOUR SOLE RISK. THE SERVICE IS
+                                PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS. DATAMAP EXPRESSLY
+                                DISCLAIMS ALL WARRANTIES OF ANY KIND.
+                            </strong>
+                        </p>
+                        <p style={{ marginBottom: "1.5rem" }}>
+                            <strong style={{ color: "#fff" }}>
+                                DATAMAP ASSUMES NO LIABILITY WHATSOEVER FOR ANY DIRECT, INDIRECT,
+                                INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES RESULTING
+                                FROM YOUR USE OF THE SERVICE, INCLUDING BUT NOT LIMITED TO DATA LOSS,
+                                SECURITY BREACHES, OR INACCURACIES IN DATA IDENTIFICATION. IN NO
+                                EVENT SHALL DATAMAP OR ITS CREATORS BE HELD LIABLE FOR ANY DAMAGES
+                                OUT OF OR IN CONNECTION WITH THE USE OR INABILITY TO USE THE
+                                SERVICE.
+                            </strong>
                         </p>
                         <h2 style={{ marginTop: "2rem", marginBottom: "1rem", color: "#fff", fontSize: "1.5rem", fontWeight: "600" }}>
-                            4. Data Revocation
+                            4. User Responsibilities
                         </h2>
                         <p style={{ marginBottom: "1.5rem" }}>
-                            You can revoke our access to your Google account at any time through
-                            your Google Account settings. Upon revocation or account deletion, all
-                            associated data mapped by our service is permanently deleted from our
-                            servers.
+                            You are responsible for maintaining the confidentiality of your account
+                            and assessing the security of the services identified by DataMap. We
+                            do not delete accounts on your behalf; we only provide information to
+                            assist you in finding them.
                         </p>
                     </div>
                 </div>

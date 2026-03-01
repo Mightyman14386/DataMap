@@ -38,7 +38,7 @@ export default function ScanPage() {
 
         const redirectTimeout = setTimeout(() => {
             // In fully built app, this directs to dashboard. For now, it could push to a non-existent route or just stay.
-            router.push("/dashboard");
+            router.push("/Frontend/dashboard");
         }, 14500);
         timeouts.push(redirectTimeout);
 

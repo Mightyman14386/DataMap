@@ -12,7 +12,7 @@ export default function AuthorizePage() {
     const handleAuthorize = () => {
         // In a real app, this would trigger the actual OAuth flow.
         // For now, we simulate the redirect to the scanning loading state.
-        router.push("/scan");
+        router.push("/Frontend/scan");
     };
 
     return (
@@ -21,7 +21,7 @@ export default function AuthorizePage() {
             <div className={styles.bgGlow}></div>
 
             <nav className={styles.nav}>
-                <Link href="/" className={styles.logo}>
+                <Link href="/Frontend" className={styles.logo}>
                     <Database className={styles.logoIcon} size={24} />
                     DataMap
                 </Link>
