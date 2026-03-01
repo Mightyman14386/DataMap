@@ -5,6 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "build": "next build",
+    "built": "npm run build",
+    "start": "next start",
     "test": "node --experimental-modules scripts/test-risk-engine.mjs",
     "test:privacy": "node scripts/test-privacy-engine.mjs",
     "test:sample": "node scripts/test-samples.mjs",
