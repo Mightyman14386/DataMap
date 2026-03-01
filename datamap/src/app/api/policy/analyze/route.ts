@@ -1,10 +1,8 @@
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { env } from "~/env";
-import { db } from "~/server/db";
-import { policyCache } from "~/server/db/schema";
+import { getPolicyCached, savePolicyCache } from "~/server/firebase-db";
 
 const analyzeRequestSchema = z.object({
 	serviceName: z.string().min(1),
@@ -151,11 +149,7 @@ export async function POST(request: Request) {
 
 	try {
 		// Check cache first
-		const [cached] = await db
-			.select()
-			.from(policyCache)
-			.where(eq(policyCache.domain, normalizedDomain))
-			.limit(1);
+		const cached = await getPolicyCached(normalizedDomain);
 
 		if (cached && cached.dataSelling && cached.aiTraining) {
 			return NextResponse.json(
@@ -204,28 +198,15 @@ export async function POST(request: Request) {
 		};
 
 		// Cache the result
-		await db
-			.insert(policyCache)
-			.values({
-				serviceName,
-				domain: normalizedDomain,
-				dataSelling: finalAnalysis.dataSelling,
-				aiTraining: finalAnalysis.aiTraining,
-				deleteDifficulty: finalAnalysis.deleteDifficulty,
-				summary: finalAnalysis.summary,
-				source: analysis ? "llm" : "default",
-				analyzedAt: new Date(),
-			})
-			.onConflictDoUpdate({
-				target: [policyCache.domain],
-				set: {
-					dataSelling: finalAnalysis.dataSelling,
-					aiTraining: finalAnalysis.aiTraining,
-					deleteDifficulty: finalAnalysis.deleteDifficulty,
-					summary: finalAnalysis.summary,
-					analyzedAt: new Date(),
-				},
-			});
+		await savePolicyCache(
+			serviceName,
+			normalizedDomain,
+			finalAnalysis.dataSelling,
+			finalAnalysis.aiTraining,
+			finalAnalysis.deleteDifficulty,
+			finalAnalysis.summary,
+			analysis ? "llm" : "default",
+		);
 
 		return NextResponse.json(
 			{

@@ -1,10 +1,13 @@
-import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "~/server/auth";
-import { db } from "~/server/db";
-import { discoveredServices, riskResults } from "~/server/db/schema";
+import {
+	getPolicyCached,
+	getLatestRiskForDomain,
+	upsertDiscoveredService,
+	saveRiskResult,
+} from "~/server/firebase-db";
 import { scoreServiceRisk } from "~/server/risk/engine";
 
 const scoreRequestSchema = z.object({
@@ -37,9 +40,9 @@ export async function POST(request: Request) {
 	}
 
 	const session = await auth();
-	const userId = session?.user?.id;
 	const body = parsed.data;
-	if (body.persist && !userId) {
+
+	if (body.persist && !session?.user?.id) {
 		return NextResponse.json(
 			{ error: "Unauthorized for persist=true" },
 			{ status: 401 },
@@ -59,102 +62,57 @@ export async function POST(request: Request) {
 		usage: { lastUsedAt },
 	});
 
-	if (!body.persist) {
+	if (!body.persist || !session?.user?.id) {
 		return NextResponse.json({ risk }, { status: 200 });
 	}
 
-	if (!userId) {
-		return NextResponse.json(
-			{ error: "Unauthorized for persist=true" },
-			{ status: 401 },
-		);
-	}
+	try {
+		const userId = session.user.id;
 
-	const [service] = await db
-		.insert(discoveredServices)
-		.values({
+		// Upsert discovered service
+		const serviceId = await upsertDiscoveredService(
 			userId,
-			serviceName: risk.serviceName,
-			domain: risk.domain,
-			lastSeenAt: new Date(),
+			risk.serviceName,
+			risk.domain,
 			lastUsedAt,
-		})
-		.onConflictDoUpdate({
-			target: [discoveredServices.userId, discoveredServices.domain],
-			set: {
-				serviceName: risk.serviceName,
-				lastSeenAt: new Date(),
-				lastUsedAt,
-			},
-		})
-		.returning({ id: discoveredServices.id });
+		);
 
-	if (!service) {
+		// Save risk result
+		const riskId = await saveRiskResult(
+			serviceId,
+			body.policy.dataSelling,
+			body.policy.aiTraining,
+			body.policy.deleteDifficulty,
+			body.policy.summary,
+			body.breach.wasBreached,
+			body.breach.breachName,
+			body.breach.breachYear,
+			risk.score,
+			risk.tier,
+			risk.reasons,
+		);
+
 		return NextResponse.json(
-			{ error: "Failed to upsert discovered service" },
+			{
+				risk: {
+					...risk,
+					id: riskId,
+					scoredAt: new Date(),
+					deletePriority: risk.deletePriority,
+				},
+				service: {
+					id: serviceId,
+				},
+			},
+			{ status: 200 },
+		);
+	} catch (error) {
+		console.error("Risk scoring error:", error);
+		return NextResponse.json(
+			{ error: "Failed to score risk" },
 			{ status: 500 },
 		);
 	}
-
-	const [savedRisk] = await db
-		.insert(riskResults)
-		.values({
-			serviceId: service.id,
-			policyDataSelling: body.policy.dataSelling,
-			policyAiTraining: body.policy.aiTraining,
-			policyDeleteDifficulty: body.policy.deleteDifficulty,
-			policySummary: body.policy.summary,
-			breachDetected: body.breach.wasBreached,
-			breachName: body.breach.breachName,
-			breachYear: body.breach.breachYear,
-			score: risk.score,
-			tier: risk.tier,
-			reasons: risk.reasons,
-		})
-		.returning({ id: riskResults.id, scoredAt: riskResults.scoredAt });
-
-	if (!savedRisk) {
-		return NextResponse.json(
-			{ error: "Failed to save risk result" },
-			{ status: 500 },
-		);
-	}
-
-	const [latestRisk] = await db
-		.select({
-			id: riskResults.id,
-			score: riskResults.score,
-			tier: riskResults.tier,
-			reasons: riskResults.reasons,
-			scoredAt: riskResults.scoredAt,
-		})
-		.from(riskResults)
-		.where(eq(riskResults.id, savedRisk.id));
-
-	const [latestForService] = await db
-		.select({ id: riskResults.id })
-		.from(riskResults)
-		.where(eq(riskResults.serviceId, service.id))
-		.orderBy(desc(riskResults.scoredAt))
-		.limit(1);
-
-	const deletePriority = risk.deletePriority;
-
-	return NextResponse.json(
-		{
-			risk: {
-				...risk,
-				id: latestRisk?.id,
-				scoredAt: latestRisk?.scoredAt,
-				deletePriority,
-			},
-			service: {
-				id: service.id,
-				isLatest: latestForService?.id === latestRisk?.id,
-			},
-		},
-		{ status: 200 },
-	);
 }
 
 export async function GET(request: Request) {
@@ -172,40 +130,14 @@ export async function GET(request: Request) {
 		);
 	}
 
-	const [service] = await db
-		.select({ id: discoveredServices.id, domain: discoveredServices.domain })
-		.from(discoveredServices)
-		.where(
-			and(
-				eq(discoveredServices.userId, session.user.id),
-				eq(discoveredServices.domain, domain),
-			),
-		)
-		.limit(1);
-
-	if (!service) {
-		return NextResponse.json({ risk: null }, { status: 200 });
+	try {
+		const risk = await getLatestRiskForDomain(session.user.id, domain);
+		return NextResponse.json({ risk: risk ?? null }, { status: 200 });
+	} catch (error) {
+		console.error("Error fetching risk:", error);
+		return NextResponse.json(
+			{ error: "Failed to fetch risk" },
+			{ status: 500 },
+		);
 	}
-
-	const [risk] = await db
-		.select({
-			id: riskResults.id,
-			score: riskResults.score,
-			tier: riskResults.tier,
-			reasons: riskResults.reasons,
-			scoredAt: riskResults.scoredAt,
-			policyDataSelling: riskResults.policyDataSelling,
-			policyAiTraining: riskResults.policyAiTraining,
-			policyDeleteDifficulty: riskResults.policyDeleteDifficulty,
-			breachDetected: riskResults.breachDetected,
-			breachName: riskResults.breachName,
-			breachYear: riskResults.breachYear,
-			policySummary: riskResults.policySummary,
-		})
-		.from(riskResults)
-		.where(eq(riskResults.serviceId, service.id))
-		.orderBy(desc(riskResults.scoredAt))
-		.limit(1);
-
-	return NextResponse.json({ risk: risk ?? null }, { status: 200 });
 }
