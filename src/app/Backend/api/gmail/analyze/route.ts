@@ -6,7 +6,11 @@ import { convertEmailsToServices } from "../../../server/privacy/client";
 import { analyzeDiscoveredServices } from "../../../server/analysis/discover-analyzer";
 import { NextResponse } from "next/server";
 
-function isRelevantEmail(subject: string, from: string, snippet: string): boolean {
+const LIST_PAGE_SIZE = 100;
+const FETCH_CONCURRENCY = 15;
+const MAX_RETRIES = 5;
+
+function isRelevantEmail(subject: string, snippet: string): boolean {
 	const subjectLower = subject.toLowerCase();
 	const snippetLower = snippet.toLowerCase();
 
@@ -19,6 +23,73 @@ function isRelevantEmail(subject: string, from: string, snippet: string): boolea
 	return relevantKeywords.some(k =>
 		subjectLower.includes(k) || snippetLower.includes(k)
 	);
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(operation: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
+	let attempt = 0;
+
+	while (true) {
+		try {
+			return await operation();
+		} catch (error: unknown) {
+			const gaxiosError = error as { code?: number; response?: { status?: number } };
+			const status = gaxiosError.response?.status ?? gaxiosError.code;
+			const retryable = status === 429 || (typeof status === "number" && status >= 500);
+
+			if (!retryable || attempt >= retries) {
+				throw error;
+			}
+
+			const backoffMs = Math.min(8000, 300 * 2 ** attempt) + Math.floor(Math.random() * 200);
+			await sleep(backoffMs);
+			attempt += 1;
+		}
+	}
+}
+
+function extractRelevantHeaders(headers: gmail_v1.Schema$MessagePartHeader[] = []): {
+	subject: string;
+	from: string;
+	date?: string;
+} {
+	let subject = "";
+	let from = "";
+	let date: string | undefined;
+
+	for (const header of headers) {
+		if (!header.name || !header.value) continue;
+		const normalizedName = header.name.toLowerCase();
+
+		if (normalizedName === "subject") subject = header.value;
+		if (normalizedName === "from") from = header.value;
+		if (normalizedName === "date") date = header.value;
+	}
+
+	return { subject, from, ...(date && { date }) };
+}
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = [];
+	let index = 0;
+
+	const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+		while (index < items.length) {
+			const currentIndex = index;
+			index += 1;
+			results[currentIndex] = await mapper(items[currentIndex]!);
+		}
+	});
+
+	await Promise.all(workers);
+	return results;
 }
 
 export async function GET() {
@@ -53,47 +124,48 @@ async function runAnalyzeBackground(accessToken: string, userId: string) {
 
 		console.log("[Gmail Analyze] Starting paginated email fetch...");
 
-		// Paginate through ALL matching emails (no cap)
-		const allMessageIds: string[] = [];
+		const parsedEmails: { subject: string; from: string; date?: string }[] = [];
 		let pageToken: string | undefined = undefined;
 		const listParams: gmail_v1.Params$Resource$Users$Messages$List = {
 			userId: "me",
-			maxResults: 50,
+			maxResults: LIST_PAGE_SIZE,
 			q: "subject:(confirm OR welcome OR verify OR account OR signup)",
+			fields: "messages/id,nextPageToken,resultSizeEstimate",
 		};
+
+		let totalMatchedMessages = 0;
+		let totalProcessedMessages = 0;
+
 		do {
 			if (pageToken) listParams.pageToken = pageToken;
-			const res = await gmail.users.messages.list(listParams);
+			const res = await withRetry(() => gmail.users.messages.list(listParams));
 
-			for (const msg of res.data.messages ?? []) {
-				if (msg.id) allMessageIds.push(msg.id);
-			}
+			const messageIds = (res.data.messages ?? [])
+				.map(message => message.id)
+				.filter((id): id is string => Boolean(id));
+			totalMatchedMessages += messageIds.length;
 
-			pageToken = res.data.nextPageToken ?? undefined;
-			if (pageToken) await new Promise(r => setTimeout(r, 500));
-		} while (pageToken);
-
-		console.log(`[Gmail Analyze] Found ${allMessageIds.length} matching messages`);
-		if (allMessageIds.length === 0) return;
-
-		// Fetch full message details in chunks of 20 to stay within Gmail rate limits
-		const parsedEmails: { subject: string; from: string; date?: string }[] = [];
-		const chunkSize = 20;
-
-		for (let i = 0; i < allMessageIds.length; i += chunkSize) {
-			const chunk = allMessageIds.slice(i, i + chunkSize);
-			const fullMessages = await Promise.all(
-				chunk.map(id => gmail.users.messages.get({ userId: "me", id }))
+			const fullMessages = await mapWithConcurrency(messageIds, FETCH_CONCURRENCY, id =>
+				withRetry(() =>
+					gmail.users.messages.get({
+						userId: "me",
+						id,
+						format: "metadata",
+						metadataHeaders: ["Subject", "From", "Date"],
+						fields: "id,snippet,payload/headers",
+					}),
+				),
 			);
 
-			for (const res of fullMessages) {
-				const headers = res.data.payload?.headers ?? [];
-				const subject = headers.find(h => h.name === "Subject")?.value ?? "";
-				const from = headers.find(h => h.name === "From")?.value ?? "";
-				const snippet = res.data.snippet ?? "";
-				const dateValue = headers.find(h => h.name === "Date")?.value;
+			for (const messageResponse of fullMessages) {
+				totalProcessedMessages += 1;
+				const headerValues = extractRelevantHeaders(messageResponse.data.payload?.headers ?? []);
+				const subject = headerValues.subject;
+				const from = headerValues.from;
+				const snippet = messageResponse.data.snippet ?? "";
+				const dateValue = headerValues.date;
 
-				if (isRelevantEmail(subject, from, snippet)) {
+				if (isRelevantEmail(subject, snippet)) {
 					parsedEmails.push({
 						subject,
 						from,
@@ -102,10 +174,15 @@ async function runAnalyzeBackground(accessToken: string, userId: string) {
 				}
 			}
 
-			if (i + chunkSize < allMessageIds.length) {
-				await new Promise(r => setTimeout(r, 1000));
-			}
-		}
+			pageToken = res.data.nextPageToken ?? undefined;
+
+			console.log(
+				`[Gmail Analyze] Page processed. totalMatched=${totalMatchedMessages}, totalProcessed=${totalProcessedMessages}, relevant=${parsedEmails.length}`,
+			);
+		} while (pageToken);
+
+		console.log(`[Gmail Analyze] Found ${totalMatchedMessages} matching messages`);
+		if (totalMatchedMessages === 0) return;
 
 		console.log(`[Gmail Analyze] ${parsedEmails.length} relevant emails found`);
 

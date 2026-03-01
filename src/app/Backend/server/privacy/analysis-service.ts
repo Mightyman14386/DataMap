@@ -70,7 +70,7 @@ function extractJSON<T>(content: string): T | null {
 
 	// Try to extract from markdown code blocks first (```json ... ``` or ``` ... ```)
 	const markdownMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-	const jsonText = markdownMatch ? markdownMatch[1].trim() : content.trim();
+	const jsonText = markdownMatch?.[1]?.trim() || content.trim();
 
 	// Try to parse the extracted JSON
 	try {
@@ -757,94 +757,129 @@ export async function batchAnalyzePrivacyPolicies(
 		return {};
 	}
 
-	// Check cache first - only analyze non-cached policies
-	const nonCachedPolicies = policies.filter((p) => {
-		const cached = COMMON_COMPANY_CACHE[p.domain.toLowerCase().trim()];
-		return !cached;
-	});
+	const normalizedPolicies = policies.map((policy) => ({
+		...policy,
+		domain: policy.domain.toLowerCase().trim(),
+	}));
+
+	const result: Record<string, PolicyAnalysis> = {};
+	const nonCachedPolicies: typeof normalizedPolicies = [];
+
+	for (const policy of normalizedPolicies) {
+		const cached = COMMON_COMPANY_CACHE[policy.domain];
+		if (cached) {
+			result[policy.domain] = cached;
+		} else {
+			nonCachedPolicies.push(policy);
+		}
+	}
 
 	if (nonCachedPolicies.length === 0) {
-		// All policies are cached
-		const result: Record<string, PolicyAnalysis> = {};
-		for (const policy of policies) {
-			const cached = COMMON_COMPANY_CACHE[policy.domain.toLowerCase().trim()];
-			if (cached) {
-				result[policy.domain] = cached;
-			}
-		}
 		return result;
+	}
+
+	const chunks = chunkPoliciesForBatch(nonCachedPolicies);
+	if (chunks.length > 1) {
+		console.log(`[Batch Analysis] Split ${nonCachedPolicies.length} policies into ${chunks.length} LLM chunks`);
 	}
 
 	try {
-		// Try Gemini first with timeout and retry
 		const geminiKey = env.GEMINI_API_KEY;
 		if (geminiKey) {
-			await waitForRateLimit("gemini");
-			console.log(`[Batch Analysis] Attempting Gemini with timeout=${LLM_TIMEOUT_MS}ms and ${LLM_MAX_RETRIES} retries`);
-			const geminiBatchResult = await retryWithBackoff(
-				() => batchAnalyzeWithGemini(nonCachedPolicies, geminiKey),
-				LLM_MAX_RETRIES
-			);
-			if (geminiBatchResult) {
-				// Merge cached results
-				const allCached = COMMON_COMPANY_CACHE;
-				const result: Record<string, PolicyAnalysis> = {
-					...geminiBatchResult,
-				};
-				for (const policy of policies) {
-					const normalizedDomain = policy.domain.toLowerCase().trim();
-					const cachedValue =
-						allCached[normalizedDomain as keyof typeof COMMON_COMPANY_CACHE];
-					if (cachedValue) {
-						result[normalizedDomain] = cachedValue;
-					}
-				}
-				return result;
+			const geminiResult = await analyzePolicyChunks(chunks, "gemini", geminiKey);
+			if (geminiResult) {
+				return { ...result, ...geminiResult };
 			}
 		}
 
-		// Fallback to Claude if Gemini fails
 		const claudeKey = env.ANTHROPIC_API_KEY;
 		if (claudeKey) {
-			await waitForRateLimit("claude");
-			console.log(`[Batch Analysis] Attempting Claude with timeout=${LLM_TIMEOUT_MS}ms and ${LLM_MAX_RETRIES} retries`);
-			const claudeResult = await retryWithBackoff(
-				() => batchAnalyzeWithClaude(nonCachedPolicies, claudeKey),
-				LLM_MAX_RETRIES
-			);
+			const claudeResult = await analyzePolicyChunks(chunks, "claude", claudeKey);
 			if (claudeResult) {
-				// Merge cached results
-				const allCached = COMMON_COMPANY_CACHE;
-				const result: Record<string, PolicyAnalysis> = {
-					...claudeResult,
-				};
-				for (const policy of policies) {
-					const normalizedDomain = policy.domain.toLowerCase().trim();
-					const cachedValue =
-						allCached[normalizedDomain as keyof typeof COMMON_COMPANY_CACHE];
-					if (cachedValue) {
-						result[normalizedDomain] = cachedValue;
-					}
-				}
-				return result;
+				return { ...result, ...claudeResult };
 			}
 		}
 
-		console.warn("No LLM providers available for batch analysis - using cached data only");
-		// Return cached data for any policies we have
-		const result: Record<string, PolicyAnalysis> = {};
-		for (const policy of policies) {
-			const normalizedDomain = policy.domain.toLowerCase().trim();
-			const cachedValue = COMMON_COMPANY_CACHE[normalizedDomain as keyof typeof COMMON_COMPANY_CACHE];
-			if (cachedValue) {
-				result[normalizedDomain] = cachedValue;
-			}
-		}
+		console.warn("No LLM providers available for batch analysis - using cached/default data only");
 		return result;
 	} catch (error) {
 		console.error("Batch analysis error:", error);
-		return {};
+		return result;
 	}
+}
+
+const MAX_POLICIES_PER_LLM_BATCH = 8;
+const MAX_POLICY_CHARS_PER_ITEM = 1600;
+const MAX_TOTAL_CHARS_PER_LLM_BATCH = 9000;
+
+function chunkPoliciesForBatch(
+	policies: Array<{
+		serviceName: string;
+		domain: string;
+		policyText: string;
+	}>,
+): typeof policies[] {
+	const chunks: typeof policies[] = [];
+	let currentChunk: typeof policies = [];
+	let currentChars = 0;
+
+	for (const policy of policies) {
+		const trimmedPolicyText = policy.policyText.slice(0, MAX_POLICY_CHARS_PER_ITEM);
+		const estimatedChars = trimmedPolicyText.length + policy.serviceName.length + policy.domain.length + 32;
+		const willExceedCount = currentChunk.length >= MAX_POLICIES_PER_LLM_BATCH;
+		const willExceedChars = currentChars + estimatedChars > MAX_TOTAL_CHARS_PER_LLM_BATCH;
+
+		if ((willExceedCount || willExceedChars) && currentChunk.length > 0) {
+			chunks.push(currentChunk);
+			currentChunk = [];
+			currentChars = 0;
+		}
+
+		currentChunk.push({ ...policy, policyText: trimmedPolicyText });
+		currentChars += estimatedChars;
+	}
+
+	if (currentChunk.length > 0) {
+		chunks.push(currentChunk);
+	}
+
+	return chunks;
+}
+
+async function analyzePolicyChunks(
+	chunks: Array<
+		Array<{
+			serviceName: string;
+			domain: string;
+			policyText: string;
+		}>
+	>,
+	provider: "gemini" | "claude",
+	apiKey: string,
+): Promise<Record<string, PolicyAnalysis> | null> {
+	const mergedResults: Record<string, PolicyAnalysis> = {};
+
+	for (let index = 0; index < chunks.length; index += 1) {
+		const chunk = chunks[index]!;
+		await waitForRateLimit(provider);
+		console.log(
+			`[Batch Analysis] ${provider} chunk ${index + 1}/${chunks.length} (${chunk.length} policies), timeout=${LLM_TIMEOUT_MS}ms retries=${LLM_MAX_RETRIES}`,
+		);
+
+		const chunkResult =
+			provider === "gemini"
+				? await retryWithBackoff(() => batchAnalyzeWithGemini(chunk, apiKey), LLM_MAX_RETRIES)
+				: await retryWithBackoff(() => batchAnalyzeWithClaude(chunk, apiKey), LLM_MAX_RETRIES);
+
+		if (!chunkResult) {
+			console.warn(`[Batch Analysis] ${provider} chunk ${index + 1} failed`);
+			return null;
+		}
+
+		Object.assign(mergedResults, chunkResult);
+	}
+
+	return mergedResults;
 }
 
 /**
@@ -859,12 +894,12 @@ async function batchAnalyzeWithGemini(
 	apiKey: string,
 ): Promise<Record<string, PolicyAnalysis> | null> {
 	try {
-		// Create analysis request for multiple policies
+		const policyByDomain = new Map(policies.map((policy) => [policy.domain, policy]));
 		const policiesText = policies
 			.map(
 				(p, i) => `
 POLICY ${i + 1}: ${p.serviceName} (${p.domain})
-${p.policyText.substring(0, 2000)}
+${p.policyText}
 ---`,
 			)
 			.join("\n");
@@ -891,8 +926,7 @@ Respond with ONLY valid JSON array (one object per policy analyzed, matching the
 			"retentionWindow": "<e.g. 30 days, 90 days, unknown>",
 			"instructions": "<clear account/data deletion steps for a user>"
 		}
-  },
-  ...
+  }
 ]
 
 Policies to analyze:
@@ -917,7 +951,7 @@ ${policiesText}`;
 					],
 					generationConfig: {
 						temperature: 0.2,
-						maxOutputTokens: 2000,
+						maxOutputTokens: 1800,
 					},
 				}),
 			},
@@ -949,8 +983,9 @@ ${policiesText}`;
 
 		for (const item of parsed) {
 			if (item && item.domain) {
-				const matchedPolicy = policies.find((p) => p.domain === item.domain);
-				result[item.domain] = {
+				const domain = String(item.domain).toLowerCase().trim();
+				const matchedPolicy = policyByDomain.get(domain);
+				result[domain] = {
 					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
 					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
 					deleteDifficulty: Math.max(
@@ -960,11 +995,11 @@ ${policiesText}`;
 					summary: item.summary || "Privacy analysis based on policy review.",
 					deletionInfo: normalizeDeletionInfo(
 						item.deletionInfo,
-						item.domain,
+						domain,
 						matchedPolicy?.policyText || null,
 					),
 				};
-				console.log(`[Gemini Batch] ${item.domain}: selling=${result[item.domain].dataSelling}, aiTraining=${result[item.domain].aiTraining}, deleteDifficulty=${result[item.domain].deleteDifficulty}`);
+				console.log(`[Gemini Batch] ${domain}: selling=${result[domain].dataSelling}, aiTraining=${result[domain].aiTraining}, deleteDifficulty=${result[domain].deleteDifficulty}`);
 			}
 		}
 
@@ -987,11 +1022,12 @@ async function batchAnalyzeWithClaude(
 	apiKey: string,
 ): Promise<Record<string, PolicyAnalysis> | null> {
 	try {
+		const policyByDomain = new Map(policies.map((policy) => [policy.domain, policy]));
 		const policiesText = policies
 			.map(
 				(p, i) => `
 POLICY ${i + 1}: ${p.serviceName} (${p.domain})
-${p.policyText.substring(0, 2000)}
+${p.policyText}
 ---`,
 			)
 			.join("\n");
@@ -1005,7 +1041,7 @@ ${p.policyText.substring(0, 2000)}
 			},
 			body: JSON.stringify({
 				model: "claude-3-5-haiku-latest",
-				max_tokens: 2000,
+				max_tokens: 1800,
 				temperature: 0.2,
 				messages: [
 					{
@@ -1026,7 +1062,8 @@ Return ONLY valid JSON array. Each item must include:
     instructions: clear user-facing steps
   }
 
-Policies:\n${policiesText}`,
+Policies:
+${policiesText}`,
 					},
 				],
 			}),
@@ -1055,8 +1092,9 @@ Policies:\n${policiesText}`,
 
 		for (const item of parsed) {
 			if (item && item.domain) {
-				const matchedPolicy = policies.find((p) => p.domain === item.domain);
-				result[item.domain] = {
+				const domain = String(item.domain).toLowerCase().trim();
+				const matchedPolicy = policyByDomain.get(domain);
+				result[domain] = {
 					dataSelling: Math.max(1, Math.min(10, parseInt(item.dataSelling) || 5)),
 					aiTraining: Math.max(1, Math.min(10, parseInt(item.aiTraining) || 5)),
 					deleteDifficulty: Math.max(
@@ -1066,7 +1104,7 @@ Policies:\n${policiesText}`,
 					summary: item.summary || "Privacy analysis based on policy review.",
 					deletionInfo: normalizeDeletionInfo(
 						item.deletionInfo,
-						item.domain,
+						domain,
 						matchedPolicy?.policyText || null,
 					),
 				};

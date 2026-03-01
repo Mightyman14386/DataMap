@@ -10,7 +10,6 @@ import {
 } from "~/app/Backend/Firebase/firebase-db";
 import { scoreServiceRisk } from "~/app/Backend/server/risk/engine";
 import {
-	analyzePrivacyPolicy,
 	batchAnalyzePrivacyPolicies,
 	checkDataBreach,
 	fetchPrivacyPolicyText,
@@ -70,6 +69,17 @@ const COMMON_COMPANY_CACHE: Record<string, boolean> = {
 	"youtube.com": true,
 };
 
+const DEFAULT_POLICY_ANALYSIS = {
+	dataSelling: 5,
+	aiTraining: 5,
+	deleteDifficulty: 5,
+	summary: "Privacy policy analysis unavailable.",
+};
+
+function normalizeDomain(domain: string): string {
+	return domain.trim().toLowerCase();
+}
+
 export async function analyzeDiscoveredServices(
 	services: DiscoveredServiceInput[],
 	options: {
@@ -82,35 +92,59 @@ export async function analyzeDiscoveredServices(
 	const results: AnalyzedResult[] = [];
 	const tierCounts = { red: 0, yellow: 0, green: 0, neutral: 0 };
 
-	// Process services in batches — each batch fully completes (policy + LLM + breach + write)
-	// before moving to the next, so Firestore gets data every batchSize services
 	for (let batchStart = 0; batchStart < services.length; batchStart += batchSize) {
-		const batch = services.slice(batchStart, batchStart + batchSize);
+		const rawBatch = services.slice(batchStart, batchStart + batchSize);
 		const batchNum = Math.floor(batchStart / batchSize) + 1;
-		console.log(`[Discover Analyzer] Batch ${batchNum}: processing ${batch.length} services`);
+		console.log(`[Discover Analyzer] Batch ${batchNum}: processing ${rawBatch.length} services`);
 
-		// Phase 1: Which services in this batch need policy fetching
-		const policiesToFetch = batch
-			.filter(s => !COMMON_COMPANY_CACHE[s.domain.trim().toLowerCase()])
-			.map(s => ({ serviceName: s.serviceName, domain: s.domain.trim().toLowerCase() }));
+		const batch = rawBatch.map((serviceInput) => ({
+			...serviceInput,
+			normalizedDomain: normalizeDomain(serviceInput.domain),
+			trimmedServiceName: serviceInput.serviceName.trim(),
+			lastUsedAtDate: serviceInput.lastUsedAt ? new Date(serviceInput.lastUsedAt) : undefined,
+		}));
 
-		// Phase 2: Fetch policies for this batch in parallel
+		const uniqueByDomain = new Map<string, typeof batch[number]>();
+		for (const service of batch) {
+			if (!uniqueByDomain.has(service.normalizedDomain)) {
+				uniqueByDomain.set(service.normalizedDomain, service);
+			}
+		}
+
+		const uniqueServices = Array.from(uniqueByDomain.values());
+		const policiesToFetch = uniqueServices
+			.filter((s) => !COMMON_COMPANY_CACHE[s.normalizedDomain])
+			.map((s) => ({ serviceName: s.trimmedServiceName, domain: s.normalizedDomain }));
+
 		const policyTextMap: Record<string, string> = {};
-		await Promise.all(
-			policiesToFetch.map(async p => {
-				try {
-					const text = await fetchPrivacyPolicyText(p.domain);
-					if (text) policyTextMap[p.domain] = text;
-				} catch (err) {
-					console.warn(`[Discover Analyzer] Policy fetch failed for ${p.domain}:`, err);
-				}
-			})
-		);
+		const breachCheckMap: Record<string, any> = {};
 
-		// Phase 3: Batch LLM analyze for this batch
+		await Promise.all([
+			Promise.all(
+				policiesToFetch.map(async (p) => {
+					try {
+						const text = await fetchPrivacyPolicyText(p.domain);
+						if (text) policyTextMap[p.domain] = text;
+					} catch (err) {
+						console.warn(`[Discover Analyzer] Policy fetch failed for ${p.domain}:`, err);
+					}
+				}),
+			),
+			Promise.all(
+				uniqueServices.map(async (s) => {
+					try {
+						const breach = await checkDataBreach(s.normalizedDomain);
+						breachCheckMap[s.normalizedDomain] = breach;
+					} catch (err) {
+						console.warn(`[Discover Analyzer] Breach check failed for ${s.normalizedDomain}:`, err);
+					}
+				}),
+			),
+		]);
+
 		const policiesToAnalyze = policiesToFetch
-			.filter(p => policyTextMap[p.domain])
-			.map(p => ({
+			.filter((p) => policyTextMap[p.domain])
+			.map((p) => ({
 				serviceName: p.serviceName,
 				domain: p.domain,
 				policyText: policyTextMap[p.domain]!,
@@ -125,50 +159,19 @@ export async function analyzeDiscoveredServices(
 			}
 		}
 
-		// Phase 4: Breach check for this batch in parallel
-		const breachCheckMap: Record<string, any> = {};
-		await Promise.all(
-			batch.map(async s => {
-				try {
-					const breach = await checkDataBreach(s.domain.toLowerCase().trim());
-					breachCheckMap[s.domain.toLowerCase().trim()] = breach;
-				} catch (err) {
-					console.warn(`[Discover Analyzer] Breach check failed for ${s.domain}:`, err);
-				}
-			})
-		);
-
-		// Phase 5: Score and persist each service in this batch
 		for (const serviceInput of batch) {
-			const normalizedDomain = serviceInput.domain.trim().toLowerCase();
-			const lastUsedAt = serviceInput.lastUsedAt
-				? new Date(serviceInput.lastUsedAt)
-				: undefined;
+			const normalizedDomain = serviceInput.normalizedDomain;
+			const lastUsedAt = serviceInput.lastUsedAtDate;
 
 			try {
-				let analysis = batchAnalysisResults[normalizedDomain];
-				let isDataUnavailable = false;
+				const analysis = batchAnalysisResults[normalizedDomain];
+				const isDataUnavailable = !analysis && !policyTextMap[normalizedDomain];
 
-				if (!analysis) {
-					if (policyTextMap[normalizedDomain]) {
-						const result = await analyzePrivacyPolicy(
-							serviceInput.serviceName,
-							policyTextMap[normalizedDomain]!,
-							normalizedDomain,
-						);
-						if (result) analysis = result;
-					} else {
-						isDataUnavailable = true;
-						console.log(`[Discover Analyzer] No policy for ${serviceInput.serviceName} (${normalizedDomain})`);
-					}
+				if (isDataUnavailable) {
+					console.log(`[Discover Analyzer] No policy for ${serviceInput.trimmedServiceName} (${normalizedDomain})`);
 				}
 
-				const policyScores = analysis || {
-					dataSelling: 5,
-					aiTraining: 5,
-					deleteDifficulty: 5,
-					summary: "Privacy policy analysis unavailable.",
-				};
+				const policyScores = analysis || DEFAULT_POLICY_ANALYSIS;
 
 				const deletionInfo = getDeletionInfoForService(
 					normalizedDomain,
@@ -188,7 +191,7 @@ export async function analyzeDiscoveredServices(
 				}
 
 				const risk = scoreServiceRisk({
-					serviceName: serviceInput.serviceName.trim(),
+					serviceName: serviceInput.trimmedServiceName,
 					domain: normalizedDomain,
 					policy: policyScores,
 					breach: breachInfo,
@@ -209,7 +212,6 @@ export async function analyzeDiscoveredServices(
 					continue;
 				}
 
-				// Write this service to Firestore immediately
 				const serviceId = await upsertDiscoveredService(
 					userId,
 					risk.serviceName,
