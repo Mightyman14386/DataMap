@@ -1,4 +1,4 @@
-// File: C:\Users\sidge\Documents\GitHub\DataMap\src\app\Frontend\page.tsx
+// File: C:\Prototypes\DataMap\src\app\Frontend\page.tsx
 import * as entry from '../../../../src/app/Frontend/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

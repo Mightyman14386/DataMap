@@ -6,16 +6,40 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
+    "/Backend/api/auth/[...nextauth]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/Backend/api/auth/[...nextauth]/route.js"
+    ],
     "/Frontend/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/css/app/Frontend/page.css",
       "static/chunks/app/Frontend/page.js"
     ],
-    "/_not-found/page": [
+    "/Frontend/authorize/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/_not-found/page.js"
+      "static/css/app/Frontend/authorize/page.css",
+      "static/chunks/app/Frontend/authorize/page.js"
+    ],
+    "/Frontend/scan/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/scan/page.css",
+      "static/chunks/app/Frontend/scan/page.js"
+    ],
+    "/Frontend/dashboard/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/layout.css",
+      "static/chunks/app/Frontend/dashboard/layout.js"
+    ],
+    "/Frontend/dashboard/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/Frontend/dashboard/page.css",
+      "static/chunks/app/Frontend/dashboard/page.js"
     ]
   }
 }

@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
-import { db } from "../Firebase/firebase.js";
+import { db } from "../Firebase/firebase";
 import { collection, doc, setDoc } from "firebase/firestore";
 
 declare module "next-auth" {
@@ -21,6 +21,8 @@ declare module "next-auth" {
 }
 
 export const config: NextAuthConfig = {
+  basePath: "/Backend/api/auth", 
+  trustHost: true,
   session: { strategy: "jwt" },
   providers: [
     Google({

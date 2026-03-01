@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Database, LayoutDashboard, LogOut, User } from "lucide-react";
 import styles from "./dashboard.module.css";
 import { useEffect, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
 
 export default function DashboardLayout({
     children,
@@ -17,6 +18,8 @@ export default function DashboardLayout({
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    const { data: session } = useSession();
 
     return (
         <div className={styles.dashboardContainer}>
@@ -32,14 +35,18 @@ export default function DashboardLayout({
 
                 <div className={styles.userProfile}>
                     <div className={styles.userInfo}>
-                        <span className={styles.userName}>Operator 01</span>
-                        <span className={styles.userEmail}>SECURE_LINK // ACTIVE</span>
+                        <span className={styles.userName}>{session?.user?.name ?? "Loading..."}</span>
+                        <span className={styles.userEmail}>{session?.user?.email ?? ""}</span>
                     </div>
                     <div className={styles.avatar}>
                         <User size={20} color="#94A3B8" />
                     </div>
                     <Link href="/Frontend">
-                        <button className={styles.logoutButton} title="Logout">
+                        <button 
+                            className={styles.logoutButton} 
+                            title="Logout" 
+                            onClick={() => signOut({ callbackUrl: "/Frontend" })}
+                        > 
                             <LogOut size={20} />
                         </button>
                     </Link>

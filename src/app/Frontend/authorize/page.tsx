@@ -2,17 +2,17 @@
 
 import { AlertTriangle, ArrowRight, Database, EyeOff, Lock, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import DarkVeil from "~/components/DarkVeil";
 import styles from "./page.module.css";
+ import { signIn } from "next-auth/react";
 
 export default function AuthorizePage() {
-    const router = useRouter();
+
 
     const handleAuthorize = () => {
         // In a real app, this would trigger the actual OAuth flow.
         // For now, we simulate the redirect to the scanning loading state.
-        router.push("/Frontend/scan");
+        signIn("google", { callbackUrl: "/Frontend/scan" });
     };
 
     return (
