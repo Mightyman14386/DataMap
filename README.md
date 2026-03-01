@@ -169,6 +169,8 @@ Final Score = CLAMP(Total, 0, 100)
 ### Running the Development Server
 
 ```bash
+npm install
+
 npm run dev
 ```
 
@@ -180,6 +182,7 @@ Opens the app at http://localhost:3000
 npm run build
 npm start
 ```
+
 
 ## License
 
