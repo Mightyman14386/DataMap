@@ -63,12 +63,12 @@ export default function Home() {
 						<ShieldCheck size={16} /> Testing mode
 					</div>
 					<h1 className={styles.title}>
-						Find and delete forgotten accounts hiding in your inbox
+						Find and understand where you online data stands. All from you gmail account
 					</h1>
 					<p className={styles.subtitle}>
 						DataMap securely scans your email headers to identify every service
-						you've ever signed up for, scoring them for risk so you can reclaim
-						your digital footprint.
+						you've ever signed up for, scoring them for privacy and identifying breaches
+
 					</p>
 					<div className={styles.ctaContainer}>
 						<button
@@ -100,9 +100,9 @@ export default function Home() {
 						</div>
 						<h3 className={styles.stepTitle}>Discovery Discovery</h3>
 						<p className={styles.stepText}>
-							We securely scan only your email metadata (Senders & Subjects) to
+							We securely scan only your emails to
 							find welcome emails, password resets, and marketing messages from
-							forgotten accounts.
+							accounts
 						</p>
 					</div>
 
@@ -113,10 +113,7 @@ export default function Home() {
 						</div>
 						<h3 className={styles.stepTitle}>Risk Scoring</h3>
 						<p className={styles.stepText}>
-							Every identified service is analyzed against our threat
-							intelligence database to determine its security posture and value
-							to hackers.
-						</p>
+							Every identified service is analyzed against our risk engine to determine its privacy score based companys privacy policy and data handling practices						</p>
 					</div>
 
 					<div className={styles.stepCard}>
@@ -127,7 +124,7 @@ export default function Home() {
 						<h3 className={styles.stepTitle}>Breach Cross-Check</h3>
 						<p className={styles.stepText}>
 							We automatically cross-reference your discovered accounts against
-							known data breaches, alerting you to immediate credential risks.
+							known data breaches, alerting you to immediate risks
 						</p>
 					</div>
 				</div>
@@ -146,20 +143,6 @@ export default function Home() {
 
 				<div className={styles.securityGrid}>
 					<div className={styles.securityItem}>
-						<EyeOff className={styles.checkIcon} size={24} />
-						<div>
-							<h4 className={styles.securityItemTitle}>
-								We never read your emails
-							</h4>
-							<p className={styles.securityItemText}>
-								Our scanners only look at header metadata (From, Date, Subject).
-								The actual content of your personal conversations is completely
-								ignored and never downloaded.
-							</p>
-						</div>
-					</div>
-
-					<div className={styles.securityItem}>
 						<ShieldCheck className={styles.checkIcon} size={24} />
 						<div>
 							<h4 className={styles.securityItemTitle}>
@@ -167,22 +150,12 @@ export default function Home() {
 							</h4>
 							<p className={styles.securityItemText}>
 								We do not sell, rent, or monetize your personal information or
-								the list of services you use. Our business model relies entirely
-								on user subscriptions.
+								the list of services you use. This is just a hackathon project
 							</p>
 						</div>
 					</div>
 
-					<div className={styles.securityItem}>
-						<Mail className={styles.checkIcon} size={24} />
-						<div>
-							<h4 className={styles.securityItemTitle}>Revoke anytime</h4>
-							<p className={styles.securityItemText}>
-								You can revoke our access to your Google account with one click,
-								and instantly delete all mapped data from our servers.
-							</p>
-						</div>
-					</div>
+
 				</div>
 			</section>
 
