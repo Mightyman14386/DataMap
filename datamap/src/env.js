@@ -11,9 +11,11 @@ export const env = createEnv({
 			process.env.NODE_ENV === "production"
 				? z.string()
 				: z.string().optional(),
+		AUTH_GOOGLE_ID: z.string(),
+		AUTH_GOOGLE_SECRET: z.string(),
+		DATABASE_URL: z.string().url(),
 		GOOGLE_CLIENT_ID: z.string(),
 		GOOGLE_CLIENT_SECRET: z.string(),
-		DATABASE_URL: z.string().url().optional(),
 		OPENAI_API_KEY: z.string().optional(),
 		ANTHROPIC_API_KEY: z.string().optional(),
 		HIBP_API_KEY: z.string().optional(),
@@ -37,12 +39,14 @@ export const env = createEnv({
 	 */
 	runtimeEnv: {
 		AUTH_SECRET: process.env.AUTH_SECRET,
+		AUTH_GOOGLE_ID: process.env.AUTH_GOOGLE_ID,
+		AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
 		GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
 		GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-		DATABASE_URL: process.env.DATABASE_URL,
 		OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
 		HIBP_API_KEY: process.env.HIBP_API_KEY,
+		DATABASE_URL: process.env.DATABASE_URL,
 		NODE_ENV: process.env.NODE_ENV,
 	},
 	/**

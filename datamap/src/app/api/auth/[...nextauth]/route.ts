@@ -3,34 +3,32 @@ import GoogleProvider from "next-auth/providers/google"
 import { FirestoreAdapter } from "@auth/firebase-adapter";
 import { adminDb } from "~/lib/firebase-admin";
 
-const handler = NextAuth({
+export const { handlers: { GET, POST } } = NextAuth({
   adapter: FirestoreAdapter(adminDb),
   providers: [
-  GoogleProvider({
-  clientId: process.env.GOOGLE_CLIENT_ID!,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-  authorization: {
-  params: {
-  scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
-  access_type: "offline",
-  prompt: "consent",
-  }
-  }
- })
- ],
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        }
+      }
+    })
+  ],
   callbacks: {
-  async jwt({ token, account }) {
-  if (account) {
-  token.accessToken = account.access_token
-   token.refreshToken = account.refresh_token
-   }
-return token
+    async jwt({ token, account }) {
+      if (account) {
+        token.accessToken = account.access_token
+        token.refreshToken = account.refresh_token
+      }
+      return token
     },
-  async session({ session, token }) {
-   session.accessToken = token.accessToken as string | undefined
- return session
-}
- }
+    async session({ session, token }) {
+      session.accessToken = token.accessToken as string | undefined
+      return session
+    }
+  }
 })
-
-export { handler as GET, handler as POST }

@@ -14,7 +14,11 @@ import Link from "next/link";
 import DarkVeil from "~/components/DarkVeil";
 import styles from "./page.module.css";
 
+import { useRouter } from "next/navigation";
+
 export default function Home() {
+	const router = useRouter();
+
 	const scrollToLogin = () => {
 		document
 			.getElementById("login-section")
@@ -198,7 +202,7 @@ export default function Home() {
 						Securely connect with Google to begin the initial scan.
 					</p>
 
-					<button type="button" className={styles.googleBtn}>
+					<button type="button" className={styles.googleBtn} onClick={() => router.push("/authorize")}>
 						<svg
 							role="img"
 							aria-label="Google Logo"
