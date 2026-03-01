@@ -116,7 +116,7 @@ export async function saveRiskResult(
 	breachName: string | undefined,
 	breachYear: number | undefined,
 	score: number,
-	tier: "red" | "yellow" | "green",
+	tier: "red" | "yellow" | "green" | "neutral",
 	reasons: string[]
 ): Promise<string> {
 	try {
@@ -126,10 +126,10 @@ export async function saveRiskResult(
 			policyDataSelling,
 			policyAiTraining,
 			policyDeleteDifficulty,
-			policySummary,
+			policySummary: policySummary || null,
 			breachDetected,
-			breachName,
-			breachYear,
+			breachName: breachName || null,
+			breachYear: breachYear || null,
 			score,
 			tier,
 			reasons,
@@ -138,6 +138,37 @@ export async function saveRiskResult(
 		return docRef.id;
 	} catch (error) {
 		console.error("Error saving risk result:", error);
+		throw error;
+	}
+}
+
+/**
+ * Save deletion/account removal information for a service
+ */
+export async function saveDeletionInfo(
+	riskId: string,
+	availability: "available" | "limited" | "unknown",
+	accountDeletionUrl?: string,
+	dataDeletionUrl?: string,
+	retentionWindow?: string,
+	instructions?: string,
+	source?: "llm" | "heuristic" | "default"
+): Promise<string> {
+	try {
+		const deletionRef = collection(db, "datamap_deletion_info");
+		const docRef = await addDoc(deletionRef, {
+			riskId,
+			availability,
+			accountDeletionUrl: accountDeletionUrl || null,
+			dataDeletionUrl: dataDeletionUrl || null,
+			retentionWindow: retentionWindow || null,
+			instructions: instructions || null,
+			source: source || "default",
+			savedAt: Timestamp.now(),
+		});
+		return docRef.id;
+	} catch (error) {
+		console.error("Error saving deletion info:", error);
 		throw error;
 	}
 }

@@ -151,12 +151,13 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
 	const session = await auth();
-	if (!session?.user?.id) {
+	if (!session?.user?.id || !session?.user?.email) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	try {
-		const services = await getUserServicesWithRisks(session.user.id);
+		console.log(`[Batch Risk] Fetching services for userId: ${session.user.email}`);
+		const services = await getUserServicesWithRisks(session.user.email); // Use email as userId to match Firestore key
 
 		const tierCounts = { red: 0, yellow: 0, green: 0 };
 
