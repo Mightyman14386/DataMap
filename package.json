@@ -29,6 +29,7 @@
     "firebase": "^12.10.0",
     "firebase-admin": "^13.0.0",
     "lucide-react": "^0.575.0",
+    "googleapis": "^171.4.0",
     "next": "^15.2.0",
     "next-auth": "^4.24.0",
     "ogl": "^1.0.11",
