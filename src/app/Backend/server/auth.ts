@@ -51,16 +51,15 @@ export const config: NextAuthConfig = {
         token.refreshToken = account.refresh_token;
         token.userId = userId;
 
-        // Save to Firestore
-        if (user.email) {
-          await setDoc(doc(db, "users", user.email), {
-            id: userId,
-            email: user.email,
-            name: user.name,
-            image: user.image,
-            accessToken: account.access_token,
-            refreshToken: account.refresh_token,
-            updatedAt: new Date(),
+          // Save to Firestore
+          await setDoc(doc(db, "users", user.email!), {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              image: user.image,
+              accessToken: account.access_token,
+              refreshToken: account.refresh_token,
+              updatedAt: new Date(),
           }, { merge: true });
           console.log("[NextAuth JWT] Saved to Firestore");
         }
